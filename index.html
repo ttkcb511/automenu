@@ -1,0 +1,3038 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<title>聊療貓 Bar · AI 貓店長 16bit</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+:root {
+  --kk-radius-lg: 18px;
+  --kk-radius-md: 12px;
+  --kk-radius-sm: 8px;
+
+  --kk-surface-main: #f4ede4;      /* 整體背景 */
+  --kk-surface-card: #fff9f0;      /* 卡片底色 */
+  --kk-shadow-strong: 0 18px 40px rgba(0,0,0,0.15);
+  --kk-shadow-soft:   0 8px 20px rgba(0,0,0,0.10);
+
+  --kk-accent:       #c48a3a;      /* 主色：帶一點金的淺咖啡 */
+  --kk-primary-soft: #f7e0b8;
+  --kk-line-soft:    rgba(180,140,90,0.35);
+
+  --kk-text-main:    #3b2922;      /* 深咖啡字 */
+  --kk-text-sub:     #7a6054;
+}
+
+body {
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-start;  /* 從置中改成靠上 */
+  justify-content: center;
+  padding-top: 20px;       /* 想再高一點，就減少這個數字 */
+  background: #f4ede4;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--kk-text-main);
+}
+
+
+
+/* 手機 100vh 空白修正 */
+@supports (height: 100dvh) {
+  body {
+    min-height: 100dvh;
+  }
+}
+
+/* 小螢幕再順便拿掉多餘的上內距，讓畫面更貼近滿版 */
+@media (max-width: 480px) {
+  body {
+    padding-top: 0;
+    align-items: center;
+  }
+}
+
+.reco-cards {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reco-card {
+  border-radius: 8px;
+  border: 1px solid #555;
+  background: #222;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.reco-card-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.reco-card-meta {
+  font-size: 11px;
+  color: #bbb;
+  margin-bottom: 2px;
+}
+
+.reco-card-note {
+  font-size: 11px;
+  color: #ddd;
+}
+
+/* 殼更像一台主機 */
+/* 殼本身改成淺色卡片感 */
+.game-shell {
+  width: 100%;
+  max-width: 380px;
+  background: var(--kk-surface-card);
+  border-radius: var(--kk-radius-lg);
+  border: 1px solid rgba(255,255,255,0.7);
+  box-shadow: var(--kk-shadow-strong);
+  padding: 16px 16px 18px;
+}
+
+/* 對話框：亮底＋深字，記得保留 .visible 切換 */
+.dialog-box {
+  width: min(340px, 100% - 20px);
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--kk-line-soft);
+  background: linear-gradient(to bottom, #fffdf8, #fbead2);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.18);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--kk-text-main);
+  max-height: 220px;
+  overflow-y: auto;
+
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 6px;
+  z-index: 4;
+
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+
+.dialog-box.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+
+
+.dialog-label {
+  font-size: 11px;
+  color: var(--kk-accent);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  opacity: 0.9;
+}
+
+.dialog-text {
+  white-space: pre-line;
+  max-width: 310px;
+  margin: 2px auto 0;
+  color: var(--kk-text-main);
+  text-align: left;
+}
+
+
+
+.title-bar {
+  text-align: center;
+  font-size: 15px;
+  line-height: 1.5;
+  margin-bottom: 6px;
+  color: var(--kk-text-main);
+}
+.title-bar span {
+  font-weight: 700;
+}
+.title-bar small {
+  font-size: 11px;
+  color: var(--kk-text-sub);
+}
+
+/* 狀態列 chip：恢復膠囊感、加對比 */
+.status-bar {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+.status-bar span {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #fff7eb;
+  border: 1px solid var(--kk-line-soft);
+  color: var(--kk-text-sub);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+
+/* ===== 起始畫面：角色選擇 ===== */
+.screen {
+  flex: 1;
+  position: relative;
+  display: none;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+}
+.screen.active { display: flex; }
+
+#screen-select { padding-top: 6px; }
+.select-top {
+  margin-bottom: 6px;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.select-sub {
+  margin-bottom: 12px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--kk-text-sub);  /* 深一點 */
+}
+
+.char-grid {
+  display: flex;
+  justify-content: space-around;
+  width: 100%;
+  max-width: 320px;
+  margin-bottom: 14px;
+}
+.char-card {
+  width: 90px;
+  padding: 8px;
+  background: #fffaf2;                     /* 亮底 */
+  border-radius: 12px;
+  border: 1px solid var(--kk-line-soft);
+  text-align: center;
+  cursor: pointer;
+  transition: 0.16s;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.10);
+}
+
+.char-card:hover {
+  border-color: var(--kk-accent);
+  transform: translateY(-2px);
+}
+
+.char-card.active {
+  border-color: var(--kk-accent);
+  box-shadow:
+    0 0 0 1px rgba(196,138,58,0.35),
+    0 4px 12px rgba(0,0,0,0.20);
+  background: #ffeecd;
+}
+
+
+.char-role-name {
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.char-role-note {
+  font-size: 10px;
+  c color: var(--kk-text-sub);  /* 比現在深一階 */
+  margin-top: 3px;
+  line-height: 1.4;
+}
+
+/* 預覽角色：高度 64 */
+.char-sprite {
+  height: 64px;
+  margin: 0 auto 6px;
+  background-repeat: no-repeat;
+  background-size: auto 64px;
+  background-position: bottom center;
+  image-rendering: pixelated;
+}
+.char-sprite.boy  { width: 25px; background-image:url("assets/hero-boy-front.png"); }
+.char-sprite.girl { width: 28px; background-image:url("assets/hero-girl-front.png"); }
+.char-sprite.cat  { width: 39px; background-image:url("assets/hero-cat-front.png"); }
+
+.nick-row {
+  width: 100%;
+  max-width: 320px;
+  margin-bottom: 4px;
+}
+.nick-row label {
+  font-size: 12px;
+  display: block;
+  margin-bottom: 4px;
+}
+.nick-row input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,0.15);
+  background: #fffaf2;             /* 淺底 */
+  color: var(--kk-text-main);      /* 深字 */
+  font-size: 13px;
+  outline: none;
+  box-shadow: inset 0 1px 2px rgba(255,255,255,0.8);
+}
+
+.nick-row input::placeholder {
+  color: var(--kk-text-sub);
+}
+
+.nick-row input:focus {
+  border-color: var(--kk-accent);
+  box-shadow:
+    0 0 0 1px rgba(196,138,58,0.35),
+    0 0 0 4px rgba(196,138,58,0.12);
+}
+.btn-primary {
+  margin-top: 10px;
+  width: 100%;
+  max-width: 320px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.8);
+  background:
+    radial-gradient(circle at 10% 0%, rgba(255,255,255,0.9), transparent 55%),
+    linear-gradient(135deg, #ffcf6b, #ff9f3f);
+  color: #3b2515;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow:
+    0 8px 18px rgba(0,0,0,0.22),
+    0 0 0 1px rgba(255,255,255,0.5);
+  backdrop-filter: blur(14px);   /* 液態玻璃關鍵 */
+  -webkit-backdrop-filter: blur(14px);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 10px 22px rgba(0,0,0,0.26),
+    0 0 0 1px rgba(255,255,255,0.7);
+  filter: brightness(1.03);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+  box-shadow:
+    0 4px 10px rgba(0,0,0,0.25);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+}
+
+
+.small-hint {
+  font-size: 11px;
+   color: var(--kk-text-sub);
+  margin-top: 6px;
+  text-align: center;
+}
+
+/* ===== 遊戲畫面：直式 360x440 + 對話框 ===== */
+#screen-game {
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  padding-top: 0;
+}
+
+.pixel-screen {
+  width: min(360px, 100%);
+  aspect-ratio: 9 / 11;           /* 取代固定 height */
+  border-radius: 12px;
+  background: #000;
+  overflow: hidden;
+  position: relative;
+  margin: 0 auto 6px;
+}
+
+/* 背景 base 層 */
+.scene-base {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  image-rendering: pixelated;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+.scene-base.active { opacity: 1; }
+
+/* 前景 fg 層 */
+.scene-fg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  image-rendering: pixelated;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+.scene-fg.active { opacity: 1; }
+
+/* 360x480 base/fg PNG */
+.scene--outside-base { background-image: url("assets/bg-outside-base.png"); }
+.scene--outside-fg   { background-image: url("assets/bg-outside-fg.png"); }
+.scene--inside-base  { background-image: url("assets/bg-inside-base.png"); }
+.scene--inside-fg    { background-image: url("assets/bg-inside-fg.png"); }
+
+/* ===== 主角 ===== */
+.hero {
+  position: absolute;
+  top: 360px;
+  left: 260px;
+  height: 64px;
+  background-repeat: no-repeat;
+  background-size: auto 64px;
+  image-rendering: pixelated;
+  transform: scale(2);
+  transform-origin: bottom center;
+  z-index: 2;
+}
+
+.hero--boy-front      { width: 25px; background-image: url("assets/hero-boy-front.png"); }
+.hero--boy-back-idle  { width: 25px; background-image: url("assets/hero-boy-back-idle.png"); }
+.hero--boy-back-walk  { width: 25px; background-image: url("assets/hero-boy-back-walk.png"); }
+
+.hero--girl-front     { width: 28px; background-image: url("assets/hero-girl-front.png"); }
+.hero--girl-back-idle { width: 28px; background-image: url("assets/hero-girl-back-idle.png"); }
+.hero--girl-back-walk { width: 28px; background-image: url("assets/hero-girl-back-walk.png"); }
+
+.hero--cat-front      { width: 39px; background-image: url("assets/hero-cat-front.png"); }
+.hero--cat-back-idle  { width: 39px; background-image: url("assets/hero-cat-back-idle.png"); }
+.hero--cat-back-walk  { width: 39px; background-image: url("assets/hero-cat-back-walk.png"); }
+
+/* ===== AI貓店長 ===== */
+.cat-clerk {
+  position: absolute;
+  top: 165px;
+  left: 300px;
+  height: 32px;
+  background-repeat: no-repeat;
+  background-size: auto 32px;
+  image-rendering: pixelated;
+  transform: scale(2);
+  transform-origin: bottom center;
+  opacity: 0;
+  transition: opacity 0.4s;
+  z-index: 1;
+}
+.cat-clerk.visible { opacity: 1; }
+.cat-clerk-idle {
+  width: 30px;
+  background-image: url("assets/cat-clerk-idle.png");
+}
+/* 手放下：客人站到面前開始對話時用 */
+.cat-clerk-talk {
+  width: 30px;
+  background-image: url("assets/cat-clerk-talk.png");
+}
+
+/* ===== 對話框 ===== */
+.dialog-box {
+  width: min(340px, 100% - 20px);
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--kk-line-soft);
+  background:
+    linear-gradient(to bottom, rgba(255,255,255,0.96), rgba(249,239,227,0.96));
+  box-shadow: 0 10px 24px rgba(153,120,90,0.4);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--kk-text-main);
+  max-height: 220px;
+  overflow-y: auto;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 6px;
+  z-index: 4;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+
+.dialog-label {
+  font-size: 11px;
+  color: var(--kk-accent);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  opacity: 0.9;
+}
+
+
+.dialog-choices {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-start;
+}
+
+.dialog-btn {
+  border-radius: 999px;
+  border: 1px solid var(--kk-line-soft);
+  background: #fff7eb;
+  color: var(--kk-text-main);
+  font-size: 12px;
+  padding: 6px 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.10);
+  transition: background 0.16s, transform 0.08s, box-shadow 0.16s, border-color 0.16s;
+}
+
+.dialog-btn:hover {
+  background: #ffeecd;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+/* 卡片型選項（心情 / 目的 / 偏好） */
+.dialog-btn.mood-card-btn,
+.dialog-btn.goal-btn,
+.dialog-btn.pref-card-btn {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border-radius: 10px;
+  background: #fffaf2;
+}
+
+/* 已選：你 JS 裡會加 active-goal */
+.dialog-btn.active-goal {
+  background: #f7e0b8;
+  border-color: var(--kk-accent);
+  box-shadow:
+    0 0 0 1px rgba(196,138,58,0.45),
+    0 4px 10px rgba(0,0,0,0.25);
+  color: #3b2515;
+}
+
+
+
+/* 通用卡片型選項 */
+.choice-card {
+  width: 100%;
+  justify-content: flex-start;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(0, 0, 0, 0.40);
+}
+
+.choice-card:hover {
+  background: rgba(255,255,255,0.07);
+  color: var(--kk-text-main);
+}
+
+.choice-card.active-goal {
+  border-color: var(--kk-accent);
+  background: rgba(242,201,160,0.22);
+}
+
+/* 文字結構 */
+.choice-emoji { font-size: 18px; flex-shrink: 0; }
+.choice-text  { display:flex; flex-direction:column; align-items:flex-start; line-height:1.4; }
+.choice-title { font-size: 13px; color: var(--kk-text-main); }
+.choice-sub   { font-size: 11px; color: var(--kk-text-sub); margin-top:2px; }
+
+/* 問「今天一定要有什麼」用的卡片式選項 */
+.dialog-btn.goal-btn {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+
+/* 心情＆身體感受用卡片選項 */
+.dialog-btn.pref-card-btn {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border-radius: 10px;
+  background: #fffaf2;
+  border-color: rgba(180,140,90,0.35);
+  white-space: normal;
+  text-align: left;
+}
+
+.dialog-btn.mood-card-btn:hover,
+.dialog-btn.goal-btn:hover,
+.dialog-btn.pref-card-btn:hover {
+  background: #fff2de;
+}
+
+.mood-emoji {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.mood-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.4;
+}
+
+.mood-title {
+  font-size: 13px;
+  color: var(--kk-text-main);
+}
+
+.mood-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--kk-text-sub);
+}
+
+.dialog-btn.goal-btn.active-goal {
+  background: rgba(210, 170, 120, 0.35);
+  border-color: var(--kk-primary-soft);
+}
+
+.goal-emoji {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.goal-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.4;
+}
+
+.goal-title {
+  font-size: 13px;
+  color: var(--kk-text-main);
+}
+
+.goal-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--kk-text-sub);
+}
+
+.dialog-btn:hover {
+  background: rgba(249,243,239,0.10);
+  color: var(--kk-text-main);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.6);
+}
+
+.dialog-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
+
+/* 被選取的選項 */
+.dialog-btn.active-goal {
+  background: #f3dfc2;
+  border-color: var(--kk-accent);
+  box-shadow: 0 0 0 1px rgba(201,152,100,0.35),
+              0 4px 10px rgba(150,120,90,0.45);
+  color: #3b2515;
+}
+
+
+/* 「主要行動」按鈕，可在 JS 加這個 class */
+.dialog-btn-primary {
+  background: var(--kk-primary-soft);
+  border-color: var(--kk-primary-soft);
+  color: #3b2515;
+}
+
+/* 身體需求／飲食限制用的卡片選項 */
+.dialog-btn.pref-card-btn {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: normal;
+  text-align: left;
+}
+
+.dialog-btn.pref-card-btn.active-goal {
+  background: rgba(210, 170, 120, 0.35);
+  border-color: var(--kk-primary-soft);
+}
+
+.pref-emoji {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.pref-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.4;
+}
+
+.pref-title {
+  font-size: 13px;
+  color: var(--kk-text-main);
+}
+
+.pref-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--kk-text-sub);
+}
+
+/* 結果面板上方的 loading 遮罩 */
+.result-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(3px);   /* 背景微微模糊 */
+  z-index: 20;                  /* 比 result-panel 本身更上層 */
+}
+
+.result-loading.hidden {
+  display: none;
+}
+
+.result-loading-card {
+  background: rgba(255, 253, 249, 0.96);   /* 亮底 */
+  border-radius: 10px;
+  border: 1px solid rgba(180,140,90,0.35);
+  box-shadow: 0 12px 28px rgba(0,0,0,0.18);
+  padding: 10px 12px;
+  max-width: 320px;
+  font-size: 12px;
+  line-height: 1.7;
+  display: flex;
+  gap: 8px;
+  align-items: center;   /* 改成置中對齊貓＋文字 */
+}
+.result-loading-text{
+  color: var(--kk-text-main);
+}
+/* 放三張思考中的貓店長 */
+.result-loading-cats {
+  position: relative;
+  width: 64px;      /* 依照你圖的大小微調 */
+  height: 64px;
+  flex-shrink: 0;
+}
+
+.result-loading-cats img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;        /* 如果是像素風可以保留 */
+  opacity: 0;
+  animation: cat-thinking 1.8s infinite;
+}
+
+/* 三張圖輪流出現：0s / 0.6s / 1.2s */
+.result-loading-cats img:nth-child(1) {
+  animation-delay: 0s;
+}
+.result-loading-cats img:nth-child(2) {
+  animation-delay: 0.6s;
+}
+.result-loading-cats img:nth-child(3) {
+  animation-delay: 1.2s;
+}
+
+@keyframes cat-thinking {
+  0%   { opacity: 0; }
+  10%  { opacity: 1; }
+  33%  { opacity: 1; }
+  43%  { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+.result-loading-text {
+  color: var(--kk-text-main);
+}.result-loading-icon {
+  font-size: 20px;
+  animation: paw-bounce 0.8s infinite alternate;
+}
+
+.result-loading-text {
+  color: var(--kk-text-main);
+}
+/* 文字最後三個點的進度動畫：. → .. → ... 循環 */
+.loading-dots::after {
+  content: "";
+  display: inline-block;
+  width: 1.2em;          /* 預留三個字元的寬度 */
+  text-align: left;
+  animation: dots-step 1s steps(3, end) infinite;
+}
+@keyframes dots-step {
+  0%   { content: "";   }
+  33%  { content: ".";  }
+  66%  { content: ".."; }
+  100% { content: "...";}
+}
+
+
+/* 簡單的小跳動動畫 */
+@keyframes paw-bounce {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-3px); }
+}
+
+/* 整體背景：改成聊療貓系的溫暖米白色系 */
+body {
+  background: #F9F5F0;
+}
+
+.pixel-screen {
+  background: #FFF8EF;
+  border: 2px solid #E2D4C4;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
+}
+
+/* ===== 按鈕樣式重新定義（for 你遊戲畫面裡的所有按鈕）===== */
+.pixel-screen button {
+  background: #FFFFFF;
+  color: #5A4030;              /* 深咖啡字色，清楚好讀 */
+  border: 1px solid #D8C6B4;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.08);
+  transition: background 0.15s, transform 0.1s, box-shadow 0.1s, color 0.15s;
+}
+
+/* hover：比原本略深一點，看得出有反應，但還是明亮 */
+.pixel-screen button:hover {
+  background: #F2E3D3;
+}
+
+/* 按住 / 點下那一瞬間：輕微下壓，不反白、不改成怪顏色 */
+.pixel-screen button:active {
+  background: #E7D3C0;
+  transform: translateY(1px);
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0.0);
+  color: #5A4030;   /* 重點：維持深色字，不要變淡色或白色 */
+}
+
+/* 如果你有「被選取中的按鈕」class（例如 .selected / .active），順便一起處理 */
+.pixel-screen button.selected,
+.pixel-screen button.active,
+.pixel-screen button[aria-pressed="true"] {
+  background: #E0C7A8;
+  border-color: #C49A72;
+  color: #4A3528;
+}
+/* ===== 聊療貓亮色系覆蓋設定（貼在 style 的最下面） ===== */
+
+/* 整體背景：奶茶色，不要死白 */
+body {
+  background: #F8F1E8;
+}
+
+/* 把 Tailwind 的 bg-black 換成亮色卡片 */
+.bg-black {
+  background-color: #FFF8EF !important;
+}
+
+/* 把 text-white 換成深咖啡字色 */
+.text-white {
+  color: #3F2A28 !important;
+}
+
+/* 如果你有用到 bg-slate-900 之類的，也順便亮一點 */
+.bg-slate-900,
+.bg-neutral-900 {
+  background-color: #F2E4D4 !important;
+}
+
+/* 卡片陰影柔一點，偏療癒感 */
+.shadow-xl,
+.shadow-2xl {
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.22) !important;
+}
+
+/* 內部像 pixel 螢幕那塊，如果 class 叫 pixel-screen，就順便美化 */
+.pixel-screen {
+  background: #FFFDF9;
+  border-radius: 18px;
+  border: 1px solid #E5D4C3;
+  padding: 10px;
+}
+/* ===== 選項按鈕配色，避免按下去整個反白 ===== */
+
+/* 先假設所有選項按鈕都有加這個 class：option-btn */
+.option-btn {
+  background: #FFFFFF;
+  color: #3F2A28;
+  border-radius: 10px;
+  border: 1px solid #E3D6C8;
+}
+
+/* 點下去 / 被選取時：背景加深，字保持清楚 */
+.option-btn:active,
+.option-btn.selected {
+  background: #EAD5BD;
+  color: #3B291F;
+}
+
+/* 去掉手機瀏覽器那種藍色反白框 */
+.option-btn {
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+}
+.option-btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(199, 165, 130, 0.45);
+}
+.hidden {
+  display: none;
+}
+/* 蓋在 pixel 畫面上 */
+    .pixel-screen.with-result {
+    }
+/* 只模糊背景層/角色/對話框，結果面板保持清楚 */
+.pixel-screen.with-result .scene-base,
+.pixel-screen.with-result .scene-fg,
+.pixel-screen.with-result #hero,
+.pixel-screen.with-result #catClerk,
+.pixel-screen.with-result .dialog-box {
+  filter: blur(3px);
+}
+
+
+/* === 覆蓋：結果卡片改亮色 === */
+.reco-card{
+  background: #fffaf2 !important;
+  border: 1px solid var(--kk-line-soft) !important;
+  color: var(--kk-text-main) !important;
+}
+.reco-card-title{ color: var(--kk-text-main) !important; }
+.reco-card-meta{ color: var(--kk-text-sub) !important; }
+.reco-card-note{ color: var(--kk-text-main) !important; opacity: .92; }
+
+.result-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  position: sticky;
+  top: 0;
+  padding: 2px 0;
+  background: linear-gradient(145deg, #fffdf7, #f8e4c8);
+  z-index: 2;
+}
+
+.result-close{
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(180,140,90,0.35);
+  background: rgba(255,255,255,0.7);
+  cursor: pointer;
+}
+
+
+/* 放在 <style> 最後面 */
+.choice-card{ padding: 10px 12px; border-radius: 14px; }
+.choice-emoji,.mood-emoji,.goal-emoji,.pref-emoji{ font-size: 20px; }
+.choice-title,.mood-title,.goal-title,.pref-title{ font-weight: 700; letter-spacing: .02em; }
+.choice-sub,.mood-sub,.goal-sub,.pref-sub{ opacity: .9; }
+
+
+
+
+/* 內容區塊滾動設定 */
+.result-header, .result-actions { flex: 0 0 auto; z-index: 5; }
+#resultStory { flex: 0 0 auto; max-height: 140px; overflow-y: auto; }
+#resultCards { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+
+@media (max-width: 480px){
+  .result-panel{
+    left: 12px;
+    right: 12px;
+    top: 12px;
+    bottom: 12px;
+    width: auto;
+    max-height: none;
+
+    transform: none;            /* 不要置中縮放 */
+    border-radius: 16px;
+    padding: 14px 14px 12px;
+
+    overflow: hidden;           /* 內部自己滾 */
+  }
+
+  /* iPhone 底部安全區（有瀏海/小白條會需要） */
+  .result-actions{
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  }
+
+  /* 內容區域分配：卡片區可以吃更多高度 */
+  #resultStory{ max-height: 32vh; overflow-y: auto; }
+  #resultCards{ flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+  /* 卡片本體變大、間距變大 */
+  .reco-cards{ gap: 10px; }
+  .reco-card{ padding: 12px 12px; border-radius: 12px; font-size: 14px; }
+  .reco-card-title{ font-size: 15px; }
+  .reco-card-meta{ font-size: 12px; }
+  .reco-card-note{ font-size: 13px; }
+
+  /* 按鈕更好按（手指友善） */
+  .dialog-btn{ padding: 10px 12px; }
+}
+
+
+/* ===== Result modal (single source) ===== */
+.result-panel{
+  position: fixed;
+  inset: 12px;                  /* 四邊留 12px，手機就是滿版感 */
+  z-index: 50;
+
+  border-radius: 16px;
+  border: 1px solid rgba(180,140,90,0.45);
+  background: linear-gradient(145deg, #fffdf7, #f8e4c8);
+  box-shadow: 0 18px 40px rgba(0,0,0,0.25);
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transform: translateY(6px);
+  transition: opacity .2s ease, transform .2s ease, visibility 0s linear .2s;
+}
+.result-panel.show{
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+  transform: translateY(0);
+  transition-delay: 0s;
+}
+
+/* Header / body / footer scrolling */
+.result-header{ flex: 0 0 auto; position: sticky; top: 0; z-index: 2; }
+.result-actions{ flex: 0 0 auto; position: sticky; bottom: 0; z-index: 2;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+}
+#resultStory{ flex: 0 0 auto; max-height: 30vh; overflow: auto; }
+#resultCards{ flex: 1 1 auto; min-height: 0; overflow: auto; }
+
+/* Card UI bigger + nicer */
+.reco-cards{ gap: 10px; }
+.reco-card{
+  background: #fffaf2 !important;
+  border: 1px solid rgba(180,140,90,0.35) !important;
+  border-radius: 14px;
+  padding: 12px 12px;
+  font-size: 14px;
+}
+
+</style>
+</head>
+<body>
+<!-- 音效 -->
+<audio id="sfxStep"  src="assets/walk.mp3"           preload="auto" loop></audio>
+<audio id="sfxOpen"  src="assets/opening-door.mp3"   preload="auto"></audio>
+<audio id="sfxBell"  src="assets/Bell_sound.mp3"     preload="auto"></audio>
+<audio id="sfxTalk"  src="assets/NES_Talking.mp3"    preload="auto" loop></audio>
+<audio id="bgmSelect" src="assets/Chiptune_01.mp3"   preload="auto" loop></audio>
+<audio id="sfxSelect" src="assets/Select.mp3"        preload="auto"></audio>
+<audio id="sfxCheck"  src="assets/check.mp3"         preload="auto"></audio>
+<audio id="bgmInside" src="assets/Chiptune_02.mp3"   preload="auto" loop></audio>
+<audio id="sfxClick"  src="assets/click.mp3"         preload="auto"></audio>
+<audio id="sfxLevelUp"  src="assets/level_up.mp3"    preload="auto"></audio>
+
+<div class="game-shell">
+  <div class="title-bar">
+    <span>聊療貓 Bar · 選擇困難症小幫手</span><br>
+    <small>今天的選擇，先交給 AI 貓店長想想看</small>
+  </div>
+
+  <div class="status-bar">
+    <span id="statusTag">載入天氣中</span>
+    <span id="statusTime">--:--</span>
+    <span id="statusTemp">--°C ·台中大里 --</span>
+  </div>
+
+  <!-- 角色選擇畫面 -->
+  <div id="screen-select" class="screen active">
+    <div class="select-top">
+      今天的選擇困難，<br>想交給哪一個「自己」來處理？
+    </div>
+    <div class="select-sub">
+      先選一個角色和暱稱，等等進去後，AI 貓店長會陪你慢慢翻菜單。
+    </div>
+
+    <div class="char-grid">
+      <div class="char-card" data-role="boy">
+        <div class="char-sprite boy"></div>
+        <div style="font-size:12px;">男生</div>
+        <div class="char-role-note">天氣很好 · 來吃頓好的吧！</div>
+      </div>
+      <div class="char-card" data-role="girl">
+        <div class="char-sprite girl"></div>
+        <div style="font-size:12px;">女生</div>
+        <div class="char-role-note">今天有點累 · 想被好好照顧</div>
+      </div>
+      <div class="char-card" data-role="cat">
+        <div class="char-sprite cat"></div>
+        <div style="font-size:12px;">貓咪</div>
+        <div class="char-role-note">什麼都交給命運決定吧！</div>
+      </div>
+    </div>
+
+    <div class="nick-row">
+      <label for="nickname">想讓貓店長怎麼叫你？（可留白）</label>
+      <input
+        id="nickname"
+        type="text"
+        maxlength="10"
+        placeholder="例如：小貓奴、加班倖存者、選擇困難患者…"
+      />
+    </div>
+
+    <button id="btnStart" class="btn-primary" disabled>
+      選好了，帶我去找「今天那一份」吧！
+    </button>
+
+    <div class="small-hint">
+      先選角色再按開始。沒填暱稱就叫「今天的客人」囉！
+    </div>
+  </div>
+
+  <!-- 遊戲主畫面 -->
+  <div id="screen-game" class="screen">
+    <div class="pixel-screen">
+      <!-- 外景 base + fg -->
+      <div id="sceneOutsideBase" class="scene-base scene--outside-base active"></div>
+      <div id="sceneOutsideFg"   class="scene-fg   scene--outside-fg active"></div>
+
+      <!-- 內景 base + fg -->
+      <div id="sceneInsideBase"  class="scene-base scene--inside-base"></div>
+      <div id="sceneInsideFg"    class="scene-fg   scene--inside-fg"></div>
+
+      <!-- 主角 & 貓店長 -->
+      <div id="hero" class="hero hero--boy-front"></div>
+      <div id="catClerk" class="cat-clerk cat-clerk-idle"></div>
+
+      <!-- 對話框 -->
+      <div class="dialog-box">
+        <div id="dialogLabel" class="dialog-label">系統</div>
+        <div id="dialogText" class="dialog-text"></div>
+        <div id="dialogChoices" class="dialog-choices"></div>
+      </div>
+
+
+<!-- 最終推薦卡片 -->
+<div id="resultPanel" class="result-panel hidden">
+  <div class="result-header">
+  <div class="result-title">AI 貓店長給你的「今天那一份」</div>
+  
+</div>
+  <div id="resultStory" class="result-story"></div>
+  <div id="resultCards" class="reco-cards"></div>
+  <div class="result-actions">
+    <button id="btnRedo" class="dialog-btn">想重來一輪</button>
+
+  </div>
+
+  <!-- Loading 小卡片（覆蓋在結果面板上） -->
+<div id="resultLoading" class="result-loading hidden">
+  <div class="result-loading-card">
+    <div class="result-loading-cats">
+      <img src="assets/cat-thinking-1.png" alt="貓店長思考1">
+      <img src="assets/cat-thinking-2.png" alt="貓店長思考2">
+      <img src="assets/cat-thinking-3.png" alt="貓店長思考3">
+    </div>
+    <div class="result-loading-text">
+      AI 貓店長正在努力翻閱菜單，幫你找今天最適合的小夥伴推薦組合中…
+     <span class="loading-dots"></span>
+    </div>
+  </div>
+</div>
+
+
+
+<script>
+const dialogTextEl    = document.getElementById("dialogText");
+const dialogLabelEl   = document.getElementById("dialogLabel");
+const dialogChoicesEl = document.getElementById("dialogChoices");
+const dialogBoxEl     = document.querySelector(".dialog-box");
+const resultPanelEl   = document.getElementById("resultPanel");
+const resultStoryEl   = document.getElementById("resultStory");
+const resultCardsEl   = document.getElementById("resultCards");
+const btnRedoEl       = document.getElementById("btnRedo");
+const resultLoadingEl = document.getElementById("resultLoading"); // ← 新增
+
+
+let aiAbort = null;
+
+// ===== 非同步請求控制（避免重來後舊請求回來覆蓋新結果）=====
+let weatherAbort = null;
+
+function abortPendingRequests() {
+  if (weatherAbort) { weatherAbort.abort(); weatherAbort = null; }
+  if (aiAbort) { aiAbort.abort(); aiAbort = null; }
+}
+
+// ===== 統一：結果面板顯示/隱藏 =====
+const pixelScreenEl = document.querySelector(".pixel-screen");
+
+function openResultPanel() {
+  resultPanelEl.classList.remove("hidden");
+  resultPanelEl.classList.add("show");
+  pixelScreenEl.classList.add("with-result");
+}
+
+function closeResultPanel() {
+  resultPanelEl.classList.remove("show");
+  resultPanelEl.classList.add("hidden");
+  pixelScreenEl.classList.remove("with-result");
+  resultLoadingEl.classList.add("hidden");
+  resultCardsEl.textContent = "";
+  resultStoryEl.textContent = "";
+  abortPendingRequests();
+}
+
+
+// 只保留這一個重來事件（確保你已刪掉檔案尾端那個重複 listener）
+btnRedoEl.addEventListener("click", (e) => {
+  e.stopPropagation();
+  playSfx(sfxClick);
+  closeResultPanel();
+  startQuestionFlow();
+});
+
+// ===== 統一：AI 問答狀態重置 =====
+const DEFAULT_PREFS = {
+  vegetarian:false,
+  noBeef:false,
+  avoidMilk:false,
+  noIce:false,
+  period:false,
+  pregnant:false,
+  noCaffeine:false
+};
+
+const DEFAULT_BODY_NEEDS = { light:false, nourish:false, warm:false };
+
+function resetAiState() {
+  state.goals = [];
+  state.prefs = { ...DEFAULT_PREFS };
+  state.mood = null;
+  state.purpose = null;
+  state.bodyNeeds = { ...DEFAULT_BODY_NEEDS };
+
+  state.mealSizePref = null;
+  state.mealFlavorPref = null;
+  state.mealBaseBias = ["toast","pizza","pasta"];
+  state.dessertPersona = null;
+
+  state.askedDrink = false;
+  state.askedMeal = false;
+  state.askedDessert = false;
+
+  state.timeHour = new Date().getHours();
+}
+
+
+const statusTagEl  = document.getElementById("statusTag");
+const statusTimeEl = document.getElementById("statusTime");
+const statusTempEl = document.getElementById("statusTemp");
+
+const sfxStep    = document.getElementById("sfxStep");
+const sfxOpen    = document.getElementById("sfxOpen");
+const sfxBell    = document.getElementById("sfxBell");
+const sfxTalk    = document.getElementById("sfxTalk");
+const bgmSelect  = document.getElementById("bgmSelect");
+const sfxSelect  = document.getElementById("sfxSelect");
+const sfxCheck   = document.getElementById("sfxCheck");
+const bgmInside  = document.getElementById("bgmInside");
+const sfxClick   = document.getElementById("sfxClick");
+const sfxLevelUp = document.getElementById("sfxLevelUp");
+
+function playSfx(audioEl) {
+  if (!audioEl) return;
+  audioEl.currentTime = 0;
+  audioEl.play();
+}
+function stopSfx(audioEl) {
+  if (!audioEl) return;
+  audioEl.pause();
+  audioEl.currentTime = 0;
+}
+
+/* 天氣＋AI 狀態：open‑meteo + 菜單問卷 */
+const state = {
+  step: 'game',
+  userName: '',
+  goals: [],
+  prefs: {
+    vegetarian:false,
+    noBeef:false,
+    avoidMilk:false,
+    noIce:false,
+    period:false,
+    pregnant:false,
+    noCaffeine:false
+  },
+  mood: null,
+  purpose: null,                // ★ 新增：今天的「目的」
+  bodyNeeds: { light:false, nourish:false, warm:false },
+  weather: {
+    temp: 24,
+    tag: 'mild',
+    condition: 'none',
+    desc: ''
+  },
+  timeHour: new Date().getHours()
+};
+
+/* 狀態列時間 */
+function updateClock() {
+  const now = new Date();
+  const hh = now.getHours().toString().padStart(2,'0');
+  const mm = now.getMinutes().toString().padStart(2,'0');
+  statusTimeEl.textContent = `${hh}:${mm}`;
+  state.timeHour = now.getHours();
+}
+updateClock();
+setInterval(updateClock, 60000);
+
+function isRainCode(code) {
+  return (code >= 51 && code <= 67) || (code >= 80 && code <= 99);
+}
+
+let weatherCache = { ts: 0, data: null }; // 10 分鐘內不重抓
+fetchWeather();
+
+async function fetchWeather() {
+  const now = Date.now();
+  if (weatherCache.data && (now - weatherCache.ts) < 10 * 60 * 1000) {
+    const { temp, desc, tag, condition } = weatherCache.data;
+    state.weather.temp = temp;
+    state.weather.tag = tag;
+    state.weather.condition = condition;
+    state.weather.desc = desc;
+    statusTagEl.textContent  = desc;
+    statusTempEl.textContent = `${temp}°C · 台中大里`;
+    return;
+  }
+
+  try {
+    if (weatherAbort) weatherAbort.abort();
+    weatherAbort = new AbortController();
+
+    const res = await fetch(
+      "https://api.open-meteo.com/v1/forecast?latitude=24.099&longitude=120.677&current_weather=true&timezone=Asia%2FTaipei",
+      { signal: weatherAbort.signal }
+    );
+    const data = await res.json();
+    if (!data.current_weather) throw new Error("no current_weather");
+
+    const cw = data.current_weather;
+    const temp = cw.temperature;
+    const code = cw.weathercode;
+
+    const isHot = temp >= 26;
+    const isCold = temp <= 19;
+    const raining = isRainCode(code);
+
+    let desc = "舒適";
+    if (raining) desc = "外面正在下雨";
+    else if (isHot) desc = "外面偏熱";
+    else if (isCold) desc = "外面偏涼";
+
+    const tag = isHot ? "hot" : (isCold ? "cold" : "mild");
+    const condition = raining ? "rain" : "none";
+
+    weatherCache = { ts: Date.now(), data: { temp, desc, tag, condition } };
+
+    state.weather.temp = temp;
+    state.weather.tag = tag;
+    state.weather.condition = condition;
+    state.weather.desc = desc;
+
+    statusTagEl.textContent  = desc;
+    statusTempEl.textContent = `${temp}°C · 台中大里`;
+  } catch (e) {
+    statusTagEl.textContent  = "狀態讀取失敗";
+    statusTempEl.textContent = "—°C · —";
+  } finally {
+    weatherAbort = null;
+  }
+}
+
+
+let typeTimer = null;
+function typeText(text, speed, onDone) {
+  if (typeTimer) {
+    clearInterval(typeTimer);
+    typeTimer = null;
+  }
+  stopSfx(sfxTalk);
+
+  dialogTextEl.textContent = "";
+  let i = 0;
+  const len = text.length;
+
+  playSfx(sfxTalk);
+
+  typeTimer = setInterval(() => {
+    if (i >= len) {
+      clearInterval(typeTimer);
+      typeTimer = null;
+      stopSfx(sfxTalk);
+      onDone && onDone();
+      return;
+    }
+    dialogTextEl.textContent += text[i];
+    i++;
+  }, speed);
+}
+
+function addDialogButton(label, handler) {
+  const btn = document.createElement("button");
+  btn.className = "dialog-btn choice-card";
+  btn.textContent = label;
+  btn.addEventListener("click", () => {
+    playSfx(sfxClick);
+    handler();
+  });
+  dialogChoicesEl.appendChild(btn);
+}
+
+let currentRole = "boy";
+let nickname = "今天的客人";
+
+const screenSelect  = document.getElementById("screen-select");
+const screenGame    = document.getElementById("screen-game");
+const btnStart      = document.getElementById("btnStart");
+const nicknameInput = document.getElementById("nickname");
+const charCards     = document.querySelectorAll(".char-card");
+
+const sceneOutsideBase = document.getElementById("sceneOutsideBase");
+const sceneOutsideFg   = document.getElementById("sceneOutsideFg");
+const sceneInsideBase  = document.getElementById("sceneInsideBase");
+const sceneInsideFg    = document.getElementById("sceneInsideFg");
+
+const heroEl     = document.getElementById("hero");
+const catClerkEl = document.getElementById("catClerk");
+
+/* 選角色 */
+charCards.forEach(card => {
+  card.addEventListener("click", () => {
+    playSfx(sfxSelect);
+    charCards.forEach(c => c.classList.remove("active"));
+    card.classList.add("active");
+    currentRole = card.dataset.role;
+    heroEl.className = "hero hero--" + currentRole + "-front";
+    btnStart.disabled = false;
+  });
+});
+
+/* 第一次點畫面啟動 BGM */
+document.addEventListener("click", function initBgmOnce() {
+  playSfx(bgmSelect);
+  document.removeEventListener("click", initBgmOnce);
+});
+
+btnStart.addEventListener("click", () => {
+  playSfx(sfxCheck);
+  stopSfx(bgmSelect);
+
+  nickname = nicknameInput.value.trim() || "今天的客人";
+  state.userName = nickname;
+  state.timeHour = new Date().getHours();
+
+  screenSelect.classList.remove("active");
+  screenGame.classList.add("active");
+  startWalkInSequence();
+});
+
+/* 走路動畫＋腳步 */
+let walkFramesTimer = null;
+function startWalkFrames() {
+  stopWalkFrames();
+  playSfx(sfxStep);
+
+  let toggle = false;
+  walkFramesTimer = setInterval(() => {
+    const base = "hero hero--" + currentRole + "-back-";
+    heroEl.className = base + (toggle ? "walk" : "idle");
+    toggle = !toggle;
+  }, 160);
+}
+function stopWalkFrames() {
+  if (walkFramesTimer) clearInterval(walkFramesTimer);
+  walkFramesTimer = null;
+  stopSfx(sfxStep);
+  heroEl.className = "hero hero--" + currentRole + "-back-idle";
+}
+
+/* 外景：左下走到門口 */
+function startWalkInSequence() {
+  sceneOutsideBase.classList.add("active");
+  sceneOutsideFg.classList.add("active");
+  sceneInsideBase.classList.remove("active");
+  sceneInsideFg.classList.remove("active");
+  catClerkEl.classList.remove("visible");
+
+  dialogBoxEl.classList.remove("visible");
+  dialogChoicesEl.innerHTML = "";
+  dialogTextEl.textContent  = "";
+
+  const startX = 40;
+  const startY = 380;
+  const endX   = 280;
+  const endY   = 260;
+
+  const totalSteps = 42;
+  let step = 0;
+
+  let x = startX;
+  let y = startY;
+  heroEl.style.left = x + "px";
+  heroEl.style.top  = y + "px";
+
+  startWalkFrames();
+
+  const dx = (endX - startX) / totalSteps;
+  const dy = (endY - startY) / totalSteps;
+
+  const walkTimerPos = setInterval(() => {
+    step++;
+
+    x += dx;
+    y += dy;
+    heroEl.style.left = x + "px";
+    heroEl.style.top  = y + "px";
+
+    if (step >= totalSteps) {
+      clearInterval(walkTimerPos);
+      stopWalkFrames();
+      heroEl.style.left = endX + "px";
+      heroEl.style.top  = endY + "px";
+      heroEl.className  = "hero hero--" + currentRole + "-back-idle";
+
+      // 客人站好後，貓店長從舉手改成手放下
+      catClerkEl.classList.remove("cat-clerk-idle");
+      catClerkEl.classList.add("cat-clerk-talk");
+
+      dialogBoxEl.classList.add("visible");
+
+      const introWalkText =
+        "Hi「" + nickname + "」，歡迎光臨 聊療貓bar！ \n\n" +
+        "接下來就交給我們店裡最厲害的 AI 貓店長，" +
+        "幫你翻翻菜單，推薦一份最適合你今天的餐點吧！";
+
+      typeText(introWalkText, 35, () => {
+        playSfx(sfxOpen);
+        setTimeout(() => {
+          enterShopIntro();
+        }, 2000);
+      });
+    }
+  }, 80);
+}
+
+/* 進店：室內左下走到吧台前 */
+function enterShopIntro() {
+  sceneOutsideBase.classList.remove("active");
+  sceneOutsideFg.classList.remove("active");
+  sceneInsideBase.classList.add("active");
+  sceneInsideFg.classList.add("active");
+
+  // 一進門就看到舉手的貓店長（強制 reset class）
+  catClerkEl.className = "cat-clerk cat-clerk-idle visible";
+  catClerkEl.classList.add("visible");
+  playSfx(sfxBell);
+
+  stopSfx(bgmSelect);
+  playSfx(bgmInside);
+
+  dialogBoxEl.classList.remove("visible");
+  stopWalkFrames();
+
+  const startX = 40;
+  const startY = 380;
+  const endX   = 240;
+  const endY   = 220;
+
+  const totalSteps = 30;
+  let step = 0;
+
+  let x = startX;
+  let y = startY;
+  heroEl.style.left = x + "px";
+  heroEl.style.top  = y + "px";
+
+  startWalkFrames();
+
+  const dx = (endX - startX) / totalSteps;
+  const dy = (endY - startY) / totalSteps;
+
+  const walkInsideTimer = setInterval(() => {
+    step++;
+
+    x += dx;
+    y += dy;
+    heroEl.style.left = x + "px";
+    heroEl.style.top  = y + "px";
+
+    if (step >= totalSteps) {
+      clearInterval(walkInsideTimer);
+      stopWalkFrames();
+      heroEl.style.left = endX + "px";
+      heroEl.style.top  = endY + "px";
+      heroEl.className  = "hero hero--" + currentRole + "-back-idle";
+
+      // 客人站到面前的瞬間：貓從舉手 -> 手放下
+      catClerkEl.classList.remove("cat-clerk-idle");
+      catClerkEl.classList.add("cat-clerk-talk");
+
+      dialogBoxEl.classList.add("visible");
+      showIntroDialogue();
+    }
+  }, 80);
+}
+
+/* 進店後開場 */
+function showIntroDialogue() {
+  dialogLabelEl.textContent = "AI貓店長";
+  dialogChoicesEl.innerHTML = "";
+
+  const introText =
+    "喵～ 你好啊～" + nickname + "既然你會來到這裡，代表你今天的選擇困難症有又發作了是吧？\n\n" +
+    "沒關係，就讓本喵來幫你找出最適合你的餐點吧，如何？。";
+
+  typeText(introText, 35, () => {
+    dialogChoicesEl.innerHTML = "";
+    addDialogButton("好啊，拜託你了！", () => {
+      startQuestionFlow();
+    });
+    addDialogButton("不要，我想自己看菜單", () => {
+      handleFakeRefuse();
+    });
+  });
+}
+
+function handleFakeRefuse() {
+  dialogChoicesEl.innerHTML = "";
+  dialogLabelEl.textContent = "AI貓店長";
+
+  const text =
+    "欸欸欸，那你剛剛是為什麼還要特地掃 QRcode來看我啦？\n\n" +
+    "都走到櫃檯前了，代表你其實超需要本喵的建議吧。\n" +
+    "來嘛～～給我 30 秒，本喵可以幫你少猶豫10分鐘耶。";
+
+  typeText(text, 35, () => {
+    dialogChoicesEl.innerHTML = "";
+    addDialogButton("好啦好啦，你開始問吧", () => {
+      startQuestionFlow();
+    });
+  });
+}
+
+/* ================== AI 貓店長：菜單資料＋打分邏輯 ================== */
+
+  const MENU_ITEMS = [
+      {id: "brown_sugar_bubble_milk_tea",name: "黑糖珍珠鮮奶茶",category: "鮮奶特調",mainType: "drink",caffeine: "normal",milk: true,ginger: false,sugarLevel: "normal",
+  canMakeUnsweetened: false,tempOptions: "both",bodySupport: ["nourish","warm"],moodTag: "relax",weatherTag: "cold", vegType: "none",effectTags: [],internalNote: "黑糖蜜珍珠搭配紅茶與鮮奶，甜度明顯、口感有嚼勁，適合需要被甜飲好好安撫的時候。"},
+      { id:"sakura_lychee_apple", name:"櫻戀清露", category:"冰糖花釀飲", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["light"], moodTag:"photo", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"櫻花蘋果荔枝風味搭蜜漬櫻花，顏值高、甜而不膩，適合拍照與想被溫柔對待的時候。" },
+      { id:"osmanthus_rock_sugar", name:"桂香冰露", category:"冰糖花釀飲", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["light"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"桂花釀與冰糖桂花調製，花香明顯但不膩，適合想放鬆又不想太重口味的時候。" },
+      { id:"yuzu_honey_soda", name:"韓香柚蜜氣泡飲", category:"氣泡飲", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"cold", bodySupport:["light"], moodTag:"relax", weatherTag:"hot", vegType:"none", effectTags:["解膩"], internalNote:"韓國柚子蜜搭配氣泡水，酸甜清爽，適合天氣熱或吃得比較油時解膩。" },
+      { id:"blue_orange_soda", name:"藍柑橙橘氣泡飲", category:"氣泡飲", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"cold", bodySupport:["light"], moodTag:"photo", weatherTag:"hot", vegType:"none", effectTags:[], internalNote:"藍柑橘糖漿＋柳橙糖漿加氣泡水，藍橙分層視覺強烈，適合拍照打卡。" },
+      { id:"apple_honey_soda", name:"蘋果蜜丁氣泡飲", category:"氣泡飲", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"cold", bodySupport:["light"], moodTag:"relax", weatherTag:"hot", vegType:"none", effectTags:[], internalNote:"韓國蘋果蜜丁＋蘋果糖漿氣泡飲，蘋果香濃甜度圓潤，適合不愛太酸的人。" },
+      { id:"hidden_soda", name:"隱藏限定特調", category:"氣泡飲", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"cold", bodySupport:["light"], moodTag:"surprise", weatherTag:"hot", vegType:"none", effectTags:[], internalNote:"不定期更換口味的氣泡特調，適合喜歡嚐鮮、接受驚喜的客人。" },
+      { id:"aroma_black_tea", name:"蜜韻蜜香紅茶", category:"純茶", mainType:"drink", caffeine:"normal", milk:false, ginger:false, sugarLevel:"unsweetened", canMakeUnsweetened:true, tempOptions:"both", bodySupport:["light"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"帶天然蜜香的紅茶，可做無糖，適合平常只喝無糖茶、又想要一點茶香的人。" },
+      { id:"peach_black_tea", name:"白桃蜜香紅茶", category:"純茶", mainType:"drink", caffeine:"normal", milk:false, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["light"], moodTag:"photo", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"紅茶加白桃果香，香氣明顯、少女感強，冰飲特別適合。" },
+      { id:"apple_black_tea", name:"蘋果蜜香紅茶", category:"純茶", mainType:"drink", caffeine:"normal", milk:false, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"蘋果香＋紅茶，味道溫暖柔和，適合秋冬或想安穩一點的時候。" },
+      { id:"earl_grey_tea", name:"單品伯爵茶", category:"純茶", mainType:"drink", caffeine:"normal", milk:false, ginger:false, sugarLevel:"unsweetened", canMakeUnsweetened:true, tempOptions:"both", bodySupport:["light"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"佛手柑香的大人系紅茶，可做無糖，適合搭甜點也適合單喝。" },
+      { id:"earl_grey_milk_tea", name:"伯爵鮮奶茶", category:"鮮奶特調", mainType:"drink", caffeine:"normal", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"伯爵茶與鮮奶結合，佛手柑香與奶香並存，是安全又有層次的奶茶。" },
+      { id:"choco_au_lait", name:"可可歐蕾", category:"鮮奶特調", mainType:"drink", caffeine:"none", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"cold", vegType:"none", effectTags:[], internalNote:"濃可可＋鮮奶，大人版巧克力牛奶，適合想被甜飲安撫的時候。" },
+      { id:"matcha_latte", name:"宇治抹茶拿鐵", category:"鮮奶特調", mainType:"drink", caffeine:"low", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"抹茶微苦回甘配鮮奶，整體溫柔平衡，適合安靜坐著的時候。" },
+      { id:"brown_sugar_milk", name:"烤黑糖鮮奶", category:"鮮奶特調", mainType:"drink", caffeine:"none", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish","warm"], moodTag:"relax", weatherTag:"cold", vegType:"none", effectTags:[], internalNote:"烤黑糖香氣厚實，甜度高、療癒感強，適合需要被甜一下的時候。" },
+      { id:"ginger_longan_milk", name:"黑糖薑汁鮮奶", category:"鮮奶特調", mainType:"drink", caffeine:"none", milk:true, ginger:true, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["warm","nourish"], moodTag:"relax", weatherTag:"cold", vegType:"none", effectTags:["暖身"], internalNote:"黑糖＋薑＋龍眼系暖身飲，適合身體想暖暖的、想養身的時候。" },
+      { id:"espresso", name:"義式濃縮", category:"咖啡", mainType:"drink", caffeine:"normal", milk:false, ginger:false, sugarLevel:"unsweetened", canMakeUnsweetened:true, tempOptions:"hot", bodySupport:[], moodTag:"wake", weatherTag:"mild", vegType:"none", effectTags:["強提神"], internalNote:"短杯濃縮咖啡，風味集中、咖啡因高，適合需要強力提神的時候。" },
+      { id:"americano", name:"經典美式", category:"咖啡", mainType:"drink", caffeine:"normal", milk:false, ginger:false, sugarLevel:"unsweetened", canMakeUnsweetened:true, tempOptions:"both", bodySupport:["light"], moodTag:"wake", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"清爽黑咖啡，適合工作、閱讀時慢慢喝。" },
+      { id:"cafe_latte", name:"經典拿鐵", category:"咖啡", mainType:"drink", caffeine:"normal", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"咖啡＋牛奶比例平衡，苦味被奶香包起來，是最安全的咖啡選擇。" },
+      { id:"cappuccino", name:"卡布奇諾", category:"咖啡", mainType:"drink", caffeine:"normal", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"奶泡較多、口感柔軟綿密，適合喜歡奶泡的人。" },
+      { id:"flavored_latte", name:"風味拿鐵（榛果／香草／焦糖／玫瑰／白桃）", category:"咖啡", mainType:"drink", caffeine:"normal", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"以拿鐵為基底加風味糖漿，香氣與甜度更明顯，適合想喝「有主題味道」的咖啡。" },
+      { id:"cafe_mocha", name:"義式摩卡", category:"咖啡", mainType:"drink", caffeine:"normal", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"cold", bodySupport:["nourish"], moodTag:"relax", weatherTag:"cold", vegType:"none", effectTags:[], internalNote:"咖啡加可可的甜系咖啡，適合喜歡巧克力又想要咖啡香的人。" },
+      { id:"caramel_macchiato", name:"焦糖瑪奇朵", category:"咖啡", mainType:"drink", caffeine:"normal", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"cold", bodySupport:["nourish"], moodTag:"relax", weatherTag:"hot", vegType:"none", effectTags:[], internalNote:"以奶香與焦糖為主的甜系咖啡，入口先甜後帶咖啡香。" },
+      { id:"espresso_romano", name:"香檸氣泡西西里", category:"咖啡", mainType:"drink", caffeine:"normal", milk:false, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"cold", bodySupport:["light"], moodTag:"wake", weatherTag:"hot", vegType:"none", effectTags:["提神"], internalNote:"檸檬＋氣泡＋濃縮咖啡，酸度與咖啡因都很有存在感，醒腦效果強。" },
+      { id:"chamomile_lavender", name:"舒緩沉靜甘菊茶", category:"花草茶", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"unsweetened", canMakeUnsweetened:true, tempOptions:"hot_preferred", bodySupport:["nourish","warm"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:["舒緩情緒","放鬆","助眠"], internalNote:"洋甘菊＋薰衣草幫助舒緩情緒、放鬆與入睡，適合作為晚上的收尾茶。" },
+      { id:"peppermint_tea", name:"清爽暢快薄荷茶", category:"花草茶", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"unsweetened", canMakeUnsweetened:true, tempOptions:"hot_preferred", bodySupport:["light"], moodTag:"wake", weatherTag:"hot", vegType:"none", effectTags:["提神","醒腦","思緒清楚"], internalNote:"薄荷＋甘草＋檸檬，清涼感明顯，可幫忙提神、讓思緒更清楚。" },
+      { id:"rose_herbal", name:"纖細仙女玫瑰茶", category:"花草茶", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"unsweetened", canMakeUnsweetened:true, tempOptions:"hot_preferred", bodySupport:["light","nourish"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:["促進消化"], internalNote:"洛神＋玫瑰，酸甜中帶花香，幫助促進消化，適合作為餐後溫柔收尾。" },
+      { id:"strawberry_herbal", name:"甜心養顏草莓茶", category:"花草茶", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"unsweetened", canMakeUnsweetened:true, tempOptions:"hot_preferred", bodySupport:["light","nourish"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:["美容保養"], internalNote:"莓果＋洛神組合，帶酸甜與花果香，常被女生當成日常美容調理的小幫手。" },
+      { id:"ginger_red_date_tea", name:"黑糖桂圓紅棗薑茶", category:"花草茶", mainType:"drink", caffeine:"none", milk:false, ginger:true, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"hot_preferred", bodySupport:["warm","nourish"], moodTag:"relax", weatherTag:"cold", vegType:"none", effectTags:["暖身"], internalNote:"黑糖＋老薑＋龍眼乾＋紅棗，超級暖身，適合身體想暖暖、想被好好養的時候（孕婦避免）。" },
+      {
+  id:"toast_margherita",
+  name:"義式瑪格麗特熱壓吐司",
+  category:"熱壓吐司",
+  mainType:"meal",
+  caffeine:"none",
+  milk:true,
+  ginger:false,
+  sugarLevel:"unsweetened",
+  canMakeUnsweetened:true,
+  tempOptions:"hot",
+  bodySupport:["light"],
+  moodTag:"relax",
+  weatherTag:"mild",
+  vegType:"ovo_lacto",
+  effectTags:[],
+  internalNote:"羅勒、烤厚番茄與起司的經典組合，適合想吃清爽一點或蛋奶素客人。",
+
+  mealSize:      "light",   // 輕食
+  mealFlavorTag: "fresh",   // 清爽
+  mealBase:      "toast"    // 吐司類
+},
+{
+  id:"toast_roast_chicken",
+  name:"地中海烤雞熱壓吐司",
+  category:"熱壓吐司",
+  mainType:"meal",
+  caffeine:"none",
+  milk:true,
+  ginger:false,
+  sugarLevel:"unsweetened",
+  canMakeUnsweetened:true,
+  tempOptions:"hot",
+  bodySupport:["light","nourish"],
+  moodTag:"relax",
+  weatherTag:"mild",
+  vegType:"none",
+  effectTags:[],
+  internalNote:"烤雞胸、彩椒與檸檬起司，油脂感低、蛋白質足，適合作為輕正餐。",
+
+  mealSize:      "light",
+  mealFlavorTag: "fresh",
+  mealBase:      "toast"
+},
+{
+  id:"toast_spicy_beef",
+  name:"費城辣烤牛肉熱壓吐司",
+  category:"熱壓吐司",
+  mainType:"meal",
+  caffeine:"none",
+  milk:true,
+  ginger:false,
+  sugarLevel:"unsweetened",
+  canMakeUnsweetened:true,
+  tempOptions:"hot",
+  bodySupport:[],
+  moodTag:"wake",
+  weatherTag:"mild",
+  vegType:"none",
+  effectTags:[],
+  internalNote:"特製慢烤牛肉＋起司，味道較重、帶一點辣，適合壓力大或很餓時。",
+
+  mealSize:      "light",
+  mealFlavorTag: "rich",   // 濃郁
+  mealBase:      "toast"
+},
+
+{
+  id:"pizza_smoked_chicken",
+  name:"煙燻雞肉披薩",
+  category:"披薩",
+  mainType:"meal",
+  caffeine:"none",
+  milk:true,
+  ginger:false,
+  sugarLevel:"unsweetened",
+  canMakeUnsweetened:true,
+  tempOptions:"hot",
+  bodySupport:[],
+  moodTag:"relax",
+  weatherTag:"mild",
+  vegType:"none",
+  effectTags:[],
+  internalNote:"雞肉、洋蔥、紅椒、芹菜，帶煙燻香氣但不會過鹹，肉量與蔬菜平衡。",
+
+  mealSize:      "full",   // 飽食
+  mealFlavorTag: "rich",
+  mealBase:      "pizza"
+},
+{
+  id:"pizza_grilled_beef",
+  name:"香烤牛肉披薩",
+  category:"披薩",
+  mainType:"meal",
+  caffeine:"none",
+  milk:true,
+  ginger:false,
+  sugarLevel:"unsweetened",
+  canMakeUnsweetened:true,
+  tempOptions:"hot",
+  bodySupport:[],
+  moodTag:"wake",
+  weatherTag:"mild",
+  vegType:"none",
+  effectTags:[],
+  internalNote:"牛肉＋起司，紅肉與乳酪風味厚實，適合需要飽足感的人。",
+
+  mealSize:      "full",
+  mealFlavorTag: "rich",
+  mealBase:      "pizza"
+},
+{
+  id:"pizza_seafood_combo",
+  name:"海鮮總匯披薩",
+  category:"披薩",
+  mainType:"meal",
+  caffeine:"none",
+  milk:true,
+  ginger:false,
+  sugarLevel:"unsweetened",
+  canMakeUnsweetened:true,
+  tempOptions:"hot",
+  bodySupport:["light"],
+  moodTag:"relax",
+  weatherTag:"mild",
+  vegType:"none",
+  effectTags:[],
+  internalNote:"花枝、蝦仁搭配蔬菜，海鮮感明顯、整體偏清爽。",
+
+  mealSize:      "full",
+  mealFlavorTag: "fresh",
+  mealBase:      "pizza"
+},
+
+{
+  id:"pasta_tomato",
+  name:"蕃茄紅醬義大利麵",
+  category:"義大利麵",
+  mainType:"meal",
+  caffeine:"none",
+  milk:false,
+  ginger:false,
+  sugarLevel:"unsweetened",
+  canMakeUnsweetened:true,
+  tempOptions:"hot",
+  bodySupport:["light"],
+  moodTag:"relax",
+  weatherTag:"mild",
+  vegType:"none",
+  effectTags:[],
+  internalNote:"蕃茄紅醬＋肉與蔬菜，酸甜開胃、飽足感高但不會太膩。",
+
+  mealSize:      "full",
+  mealFlavorTag: "fresh",
+  mealBase:      "pasta"
+},
+{
+  id:"pasta_white_sauce",
+  name:"培根白醬義大利麵",
+  category:"義大利麵",
+  mainType:"meal",
+  caffeine:"none",
+  milk:true,
+  ginger:false,
+  sugarLevel:"unsweetened",
+  canMakeUnsweetened:true,
+  tempOptions:"hot",
+  bodySupport:["nourish"],
+  moodTag:"relax",
+  weatherTag:"cold",
+  vegType:"none",
+  effectTags:[],
+  internalNote:"奶油白醬＋豬培根與蔬菜，奶味濃郁、偏罪惡感，適合想吃重一點的時候。",
+
+  mealSize:      "full",
+  mealFlavorTag: "rich",
+  mealBase:      "pasta"
+},
+
+
+      { id:"basque_original", name:"原味巴斯克乳酪蛋糕", category:"甜點", mainType:"dessert", caffeine:"none", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"mild", vegType:"ovo_lacto", effectTags:[], internalNote:"乳酪香濃、甜度中等，是第一次來最安全的巴斯克選擇。" },
+      { id:"basque_matcha", name:"抹茶巴斯克乳酪蛋糕", category:"甜點", mainType:"dessert", caffeine:"low", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"mild", vegType:"ovo_lacto", effectTags:[], internalNote:"抹茶微苦回甘、甜度略低，適合喜歡大人味抹茶的人。" },
+      { id:"basque_tieguanyin", name:"鐵觀音巴斯克乳酪蛋糕", category:"甜點", mainType:"dessert", caffeine:"low", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"mild", vegType:"ovo_lacto", effectTags:[], internalNote:"鐵觀音茶香明顯、甜度不高，適合不愛太膩、又想要茶韻的人。" },
+      { id:"basque_chocolate", name:"巧克力巴斯克乳酪蛋糕", category:"甜點", mainType:"dessert", caffeine:"low", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"cold", vegType:"ovo_lacto", effectTags:[], internalNote:"可可濃郁、苦甜平衡，適合需要重口味甜食療癒的時候。" },
+      { id:"dessert_seasonal", name:"期間限定蛋糕", category:"甜點", mainType:"dessert", caffeine:"none", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"surprise", weatherTag:"mild", vegType:"ovo_lacto", effectTags:[], internalNote:"依季節與靈感更換口味，適合願意交出選擇權、想嚐鮮的人。" }
+    ];
+
+/* 硬過濾：直接不能推薦的項目先排掉 */
+function passesHardFilter(item, p) {
+  const isIceSugarOrSoda =
+    item.category === '冰糖花釀飲' || item.category === '氣泡飲';
+
+  // 蛋奶素：主餐只留蛋奶素
+  if (p.vegetarian) {
+    if (item.mainType === 'meal' && item.vegType !== 'ovo_lacto') return false;
+  }
+
+  // 不吃牛
+  if (p.noBeef && item.id && item.id.includes('beef')) return false;
+
+  // 不喝鮮奶類飲品：只擋 drink+milk
+  if (p.avoidMilk && item.mainType === 'drink' && item.milk) return false;
+
+  // 不喝咖啡因
+  if (p.noCaffeine && item.caffeine !== 'none') return false;
+
+  // 不喝冰飲
+  if (p.noIce && item.mainType === 'drink') {
+    if (item.tempOptions === 'cold' || isIceSugarOrSoda) return false;
+  }
+
+  // 月經：避免冰飲＋氣泡＋薑
+  if (p.period && item.mainType === 'drink') {
+    if (item.tempOptions === 'cold' || isIceSugarOrSoda) return false;
+    if (item.ginger) return false;
+  }
+
+  // 懷孕：避免咖啡因＋薑＋特定花草
+  if (p.pregnant && item.mainType === 'drink') {
+    if (item.caffeine !== 'none') return false;
+    if (item.ginger) return false;
+    const riskyHerbIds = ['peppermint', 'rose_herbal', 'strawberry_herbal', 'osmanthus'];
+    if (riskyHerbIds.some(k => item.id && item.id.includes(k))) return false;
+  }
+
+  return true;
+}
+
+/* 計分邏輯 */
+function scoreItem(item) {
+  const { mood, bodyNeeds, prefs, weather, timeHour, purpose} = state;
+
+  // 命運牌：只保留 hidden_soda + 限定甜點
+  if (mood === 'lucky') {
+    if (!passesHardFilter(item, prefs)) return -999;
+    if (item.id === 'hidden_soda' || item.id === 'dessert_seasonal') {
+      return 9999 + Math.random();
+    }
+    return Math.random() * 50;
+  }
+
+  if (!passesHardFilter(item, prefs)) return -999;
+
+  let score = 0;
+
+  // 飲料
+  if (item.mainType === 'drink') {
+    if (mood === 'focus') {
+      if (item.caffeine === 'normal') score += 16;
+      if (['americano','espresso','espresso_romano'].includes(item.id)) score += 6;
+    }
+    if (mood === 'down') {
+      if (['relax','photo'].includes(item.moodTag)) score += 8;
+      if (item.category === '花草茶' || item.category === '冰糖花釀飲') score += 6;
+    }
+    if (mood === 'tired') {
+      if (item.bodySupport?.includes('nourish')) score += 10;
+      if (item.bodySupport?.includes('warm'))   score += 8;
+    }
+    if (mood === 'happy') {
+      if (['photo','surprise'].includes(item.moodTag)) score += 10;
+      if (item.category === '鮮奶特調' || item.category === '氣泡飲') score += 8;
+    }
+// === 新增：今天的「目的」加權 ===
+  if (purpose === 'study') {
+    // 類似 focus，但稍微保守一點，避免太硬翻盤
+    if (item.caffeine === 'normal') score += 10;
+    if (['americano','espresso','espresso_romano','espresso_romano'].includes(item.id)) score += 4;
+    if (item.moodTag === 'wake') score += 4;
+  }
+
+  if (purpose === 'chat') {
+    // 跟朋友聊天：偏好舒服、好入口、適合聊天的
+    if (['relax','photo'].includes(item.moodTag)) score += 6;
+    if (item.category === '鮮奶特調' || item.category === '氣泡飲' || item.category === '純茶') {
+      score += 4;
+    }
+  }
+
+  if (purpose === 'photo') {
+    // 慕名而來：就是要好拍
+    if (item.moodTag === 'photo') score += 12;
+    if (item.moodTag === 'surprise') score += 6;
+    if (item.category === '氣泡飲' || item.category === '冰糖花釀飲') score += 4;
+  }
+
+  if (purpose === 'cat') {
+    // 擼貓：平靜、陪伴、不要太刺激
+    if (item.moodTag === 'relax') score += 6;
+    if (item.caffeine === 'none') score += 4;
+    if (item.bodySupport?.includes('warm') || item.category === '花草茶') score += 4;
+  }
+    // === 新增：有點心事，想安靜整理 ===
+    if (purpose === 'heal') {
+      // 偏向暖身、安撫情緒的花草茶或熱飲
+      if (item.moodTag === 'relax') score += 8;
+      if (item.category === '花草茶') score += 6;
+      if (item.bodySupport?.includes('warm') || item.bodySupport?.includes('nourish')) {
+        score += 4;
+      }
+      // 盡量少咖啡因：無咖啡因小加分、強提神略減分
+      if (item.caffeine === 'none') score += 3;
+      if (item.effectTags?.includes('強提神')) score -= 4;
+    }
+
+    // === 新增：想慶祝一下 / 約會 ===
+    if (purpose === 'celebrate') {
+      // 想要「有儀式感」：好拍、特調、驚喜類
+      if (['photo','surprise'].includes(item.moodTag)) score += 10;
+      if (['氣泡飲','冰糖花釀飲','鮮奶特調'].includes(item.category)) score += 5;
+      // 有故事感的效果也稍微加分（例如解膩、暖身等）
+      if (item.effectTags?.includes('解膩') || item.effectTags?.includes('暖身')) {
+        score += 2;
+      }
+    }
+
+    if (bodyNeeds?.light   && item.bodySupport?.includes('light'))   score += 6;
+    if (bodyNeeds?.nourish && item.bodySupport?.includes('nourish')) score += 6;
+    if (bodyNeeds?.warm    && item.bodySupport?.includes('warm'))    score += 6;
+
+    // 時間：越晚越不推高咖啡因
+    if (timeHour >= 18 && item.caffeine === 'none')   score += 8;
+    if (timeHour >= 20 && item.caffeine === 'normal') score -= 15;
+    if (timeHour >= 22 && item.caffeine === 'normal') score -= 999;
+
+    const isIceSugarOrSoda3 =
+      item.category === '冰糖花釀飲' || item.category === '氣泡飲';
+
+    // 天氣：熱偏冷飲，冷偏熱飲
+    if (weather.tag === 'hot' &&
+        (item.tempOptions === 'cold' || item.weatherTag === 'hot')) {
+      score += 4;
+    } else if (weather.tag === 'cold' && item.tempOptions !== 'cold') {
+      score += 4;
+    }
+
+    // 下雨天：偏暖偏茶
+    if (state.weather.condition === 'rain') {
+      if (item.bodySupport?.includes('warm') || item.category === '花草茶') score += 6;
+      if (item.id === 'ginger_red_date_tea' || item.id === 'ginger_longan_milk') score += 8;
+      if (isIceSugarOrSoda3 && item.tempOptions === 'cold') score -= 6;
+    }
+  }
+
+  // 主餐：輕食 / 飽食 ＋ 清爽 / 濃郁
+  else if (item.mainType === 'meal') {
+    const sizePref   = state.mealSizePref;    // "light" | "full"
+    const flavorPref = state.mealFlavorPref;  // "fresh" | "rich"
+    const baseBias   = state.mealBaseBias || [];
+
+    if (sizePref === 'light') {
+      if (item.mealSize === 'light') score += 20;
+      else score -= 5;
+    } else if (sizePref === 'full') {
+      if (item.mealSize === 'full') score += 20;
+      else score -= 5;
+    }
+
+    if (flavorPref === 'fresh') {
+      if (item.mealFlavorTag === 'fresh') score += 20;
+      else score -= 5;
+    } else if (flavorPref === 'rich') {
+      if (item.mealFlavorTag === 'rich') score += 20;
+      else score -= 5;
+    }
+
+    if (baseBias.includes(item.mealBase)) {
+      score += 8;
+    }
+  }
+
+  // 甜點：人格匹配
+  else if (item.mainType === 'dessert') {
+    const persona = state.dessertPersona;
+    if (persona) {
+      switch (persona) {
+        case "original":
+          if (item.id === "basque_original")   score += 40;
+          if (item.id === "dessert_seasonal")  score -= 10;
+          break;
+        case "tieguanyin":
+          if (item.id === "basque_tieguanyin") score += 40;
+          if (item.id === "basque_matcha")     score += 10;
+          break;
+        case "choco":
+          if (item.id === "basque_chocolate")  score += 40;
+          break;
+        case "matcha":
+          if (item.id === "basque_matcha")     score += 40;
+          if (item.id === "basque_tieguanyin") score += 10;
+          break;
+        case "adventure":
+          if (item.id === "dessert_seasonal")  score += 40;
+          if (item.id === "basque_original")   score -= 10;
+          break;
+      }
+    }
+  }
+
+  return score + Math.random();
+}
+
+/* 挑選推薦組合：主餐 + 兩杯飲料 + 甜點 */
+function pickRecommendations() {
+  const typesOrder = ['meal','drink','dessert'];
+  const picks = { meal:null, drinks:[], dessert:null };
+
+  typesOrder.forEach(type => {
+    if (!state.goals.length || state.goals.includes(type)) {
+      let items = MENU_ITEMS.filter(i => i.mainType === type);
+      if (!items.length) return;
+
+      // 主餐：若有 base 偏好，優先從那幾類挑
+      if (type === 'meal' && state.mealBaseBias && state.mealBaseBias.length) {
+        const filtered = items.filter(i => state.mealBaseBias.includes(i.mealBase));
+        if (filtered.length) items = filtered;
+      }
+
+      const scored = items
+        .map(item => ({ item, score: scoreItem(item) }))
+        .filter(x => x.score > -500)
+        .sort((a,b) => b.score - a.score);
+
+      if (!scored.length) return;
+
+      if (type === 'drink') {
+        const drinkCount = 2;
+        picks.drinks = scored.slice(0, drinkCount).map(x => x.item);
+      } else if (type === 'meal') {
+        picks.meal = scored[0]?.item || null;
+      } else if (type === 'dessert') {
+        picks.dessert = scored[0]?.item || null;
+      }
+    }
+  });
+
+  return picks;
+}
+const MEAL_BASE_EMOJI = { toast:"🥪", pizza:"🍕", pasta:"🍝" };
+const TYPE_EMOJI = { drink:"🥤", dessert:"🍰" };
+const TYPE_LABEL = { meal:"主餐", drink:"飲料", dessert:"甜點" };
+
+function getItemEmoji(item){
+  if (item.mainType === "meal") return MEAL_BASE_EMOJI[item.mealBase] || "🍽️";
+  return TYPE_EMOJI[item.mainType] || "✨";
+}
+
+function renderComboCards(combo){
+  const { meal, drinks, dessert } = combo;
+
+  resultCardsEl.textContent = "";
+  const box = document.createElement("div");
+  box.className = "reco-cards";
+
+  const addCard = (label, item) => {
+    if (!item) return;
+
+    const el = document.createElement("div");
+    el.className = "reco-card";
+
+    const title = document.createElement("div");
+    title.className = "reco-card-title";
+    title.textContent = `${label} · ${getItemEmoji(item)} ${item.name}`;
+
+    const meta = document.createElement("div");
+    meta.className = "reco-card-meta";
+    meta.textContent = `${TYPE_LABEL[item.mainType] || item.mainType} · ${item.category || ""}`.trim();
+
+    const note = document.createElement("div");
+    note.className = "reco-card-note";
+    note.textContent = item.internalNote || "";
+
+    el.appendChild(title);
+    el.appendChild(meta);
+    el.appendChild(note);
+    box.appendChild(el);
+  };
+
+  addCard("主餐", meal);
+  (drinks || []).forEach((d, i) => addCard(i === 0 ? "飲料1" : "飲料2", d));
+  addCard("甜點", dessert);
+
+  resultCardsEl.appendChild(box);
+}
+
+
+/* === 時段標籤：早上 / 中午 / 下午 / 晚上 === */
+function getTimeLabel(h) {
+  if (h >= 5 && h < 11) return "早上";
+  if (h >= 11 && h < 13) return "中午";
+  if (h >= 13 && h < 18) return "下午";
+  if (h >= 18 && h <= 23) return "晚上";
+  return "深夜";
+}
+
+/* 本地 fallback：萬一 Gemini 掛掉就用這個敘事 */
+function generateComboFallback(combo) {
+  const { meal, drinks, dessert } = combo;
+  const { timeHour, weather, prefs } = state;
+
+  const lines = [];
+
+  const label = getTimeLabel(timeHour);
+  const timeText = `${label}大約 ${timeHour.toString().padStart(2, "0")} 點`;
+  lines.push(`${timeText}，本喵看完你今天的狀態後，排出了這一組：`);
+
+  if (meal) {
+    lines.push(`主餐先來一份「${meal.name}」，當作今天的補 HP 主力。`);
+  }
+
+  if (drinks && drinks.length) {
+    const drinkNames = drinks.map(d => `「${d.name}」`).join(" ＋ ");
+    if (weather.tag === "hot") {
+      lines.push(`喝的部分，本喵幫你湊成 ${drinkNames}，偏清爽，適合現在這種天氣。`);
+    } else if (weather.tag === "cold") {
+      lines.push(`喝的部分是 ${drinkNames}，偏溫暖療癒，適合現在這種比較涼的時間。`);
+    } else {
+      lines.push(`喝的部分選了 ${drinkNames}，陪你慢慢度過今天的行程。`);
+    }
+  }
+
+  if (dessert) {
+    lines.push(`最後用甜點「${dessert.name}」收尾，幫今天加上一點儀式感。`);
+  }
+
+  if (prefs.period && drinks.some(d => d.bodySupport?.includes("warm"))) {
+    lines.push(`也有特別幫你挑「偏暖身」的飲品，陪你比較舒服地度過生理期。`);
+  }
+
+  return lines.join("\n");
+}
+
+/* 把 combo + 狀態壓成一行 summary，丟給 Gemini 當 context */
+function buildContextSummary(combo) {
+  const { meal, drinks, dessert } = combo;
+  const g = state.goals;
+  const p = state.prefs;
+  const time = state.timeHour;
+
+  const label = getTimeLabel(time);
+  const timeText = `${label}${time.toString().padStart(2, "0")}點左右`;
+
+  const needs = [];
+  if (g.includes("meal"))    needs.push("想吃一份主餐");
+  if (g.includes("drink"))   needs.push("一定要有飲料");
+  if (g.includes("dessert")) needs.push("想要甜點收尾");
+
+  if (p.period)      needs.push("月事期間");
+  if (p.pregnant)    needs.push("懷孕中");
+  if (p.noIce)       needs.push("不喝冰飲");
+  if (p.avoidMilk)   needs.push("不喝鮮奶類飲品");
+  if (p.vegetarian)  needs.push("蛋奶素");
+  if (p.noBeef)      needs.push("不吃牛");
+
+  const needText = needs.length ? needs.join("、") : "沒有特別限制";
+
+  const drinkNames = drinks.length ? drinks.map(d => d.name).join("、") : "（無飲品）";
+
+  return [
+    state.userName || "今天的客人",
+    timeText,
+    needText,
+    meal    ? meal.name    : "（無主餐）",
+    drinkNames,
+    dessert ? dessert.name : "（無甜點）"
+  ].join("｜");
+}
+
+/* 確保 Gemini 回傳的文字裡，只會提到這次 combo 裡真的有的品項名稱 */
+function validateAiText(aiText, combo) {
+  if (!aiText || typeof aiText !== "string") return false;
+
+  const { meal, drinks, dessert } = combo;
+  const allowedNames = [
+    meal?.name,
+    dessert?.name,
+    ...drinks.map(d => d.name)
+  ].filter(Boolean);
+
+  const regex = /「([^」]+)」/g;
+  let match;
+  while ((match = regex.exec(aiText)) !== null) {
+    const nameInText = match[1].trim();
+    if (!allowedNames.includes(nameInText)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/* 呼叫 Netlify 上的 gemini-combo Function 拿敘事文案 */
+async function getAIComboReason(combo, fallbackText) {
+  const contextSummary = buildContextSummary(combo);
+
+  const prompt = `
+你是「聊療貓 Bar」的 AI 貓店長，也是一位很會照顧人心情的療癒系店員。
+你說話像在店裡跟熟客聊天，有畫面、有溫度，會真的看見對方現在的狀態，而不是只在唸菜單。
+
+【客人與情境摘要（請先完整閱讀再回覆）】
+${contextSummary}
+
+上面的情境中，可能會出現像是：
+-「月事期間」「肚子不舒服」「今天特別累」
+-「剛下班」「壓力很大」「心情悶悶的」
+-「今天想安靜一點」「只想好好放空」
+請你一定要從裡面抓出 1～2 個關鍵，當成你回話的核心。
+
+【請你幫忙做的事情】
+
+1.開場先好好「看見對方」（2～3 句）
+  - 直接點出他今天的狀態，例如：
+    -「今天的你，好像比平常更疲憊一點。」
+    -「我有注意到你現在正處在月事期間，身體應該沒那麼輕鬆。」
+  - 用共感的語氣承接他的感受，例如：
+    -「我完全能理解那種又累又有點煩躁的感覺。」
+  - 再自然帶出：因為這樣，所以才幫他搭了這一組餐點。
+
+  ✦ 參考語氣示例（不要直接照抄字句，只學習風格）：
+  「今天的你是不是比平常更疲憊？我有看到你現在正處在月事期間，那種悶脹、煩躁，我真的可以想像。所以這次特別幫你挑了比較溫暖、好入口的組合，讓你可以一邊休息、一邊慢慢照顧自己的身體。」
+
+2.說明這一組搭配的「為什麼」與「感覺」（3～5 句）
+  - 每個被提到的品項名稱，都用全形引號括起來，例如：「原味巴斯克乳酪蛋糕」。
+  - 說明時要把品項，跟他的狀態連在一起，不要只講功能：
+    -「因為你今天肚子比較敏感，所以選了『熱紅茶』，讓身體先暖起來。」
+    -「再配上一塊『原味巴斯克乳酪蛋糕』，口感比較柔軟，不會太刺激。」
+  - 可以多用感受與畫面來形容：
+    -「像幫自己按下暫停鍵，慢慢把一天的疲憊卸下來。」
+    -「讓身體暖一點、心也跟著鬆一點。」
+
+3.尾巴加上一點互動感（1～2 句）
+  - 用溫柔的方式，把選擇權交還給客人，可以用輕鬆的疑問句：
+    -「如果你現在最想做的，是先暖暖身子，那可以先從『熱紅茶』開始陪你慢慢放鬆。」
+    -「你也可以想想，今天比較需要的是安靜陪伴，還是一點點小小的甜？」
+  - 不要用命令或強迫語氣，不要說「一定要點」「最適合你的就是」。
+
+【風格與限制】
+
+4.風格要求
+  - 使用自然的繁體中文，像跟朋友說話，有人味，不要制式客服腔。
+  - 語氣可以溫柔、帶一點可愛的貓店長感，但不要講太多廢話。
+  - 句子可以短一點沒關係，多用生活感的形容詞（暖暖的、慢慢來、安穩一點…）。
+  - 對話排版順暢容易閱讀，不要擠成一大團
+
+5.品項限制
+  - 不要出現任何菜單上沒有的品項名稱。
+  - 每個被提到的品項名稱，都用全形引號括起來並且改為粗體字，例如：「原味巴斯克乳酪蛋糕」。
+
+6.決策與推銷
+  - 你的任務是「解釋為什麼這組很貼近他」，不是幫他做決定。
+  - 不要使用強烈推銷語氣，不要保證任何效果（例如：一定改善、一定不痛）。
+
+請依照以上規則，產出一段完整的回覆，不要再重複條列規則，只呈現給客人看的最終對話內容即可。
+`.trim();
+
+try {
+    // ★ 這裡：每次要問 Gemini 前，先取消上一個還在跑的請求
+    if (aiAbort) aiAbort.abort();
+    aiAbort = new AbortController();
+
+    const res = await fetch("/.netlify/functions/gemini-combo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+      signal: aiAbort.signal // ★ 這裡：把 signal 加進 fetch
+    });
+
+    const data = await res.json();
+    const text = data?.text;
+
+    if (text && typeof text === "string") {
+      const cleaned = text.replace(/\*/g, "").trim();
+      if (validateAiText(cleaned, combo)) return cleaned;
+    }
+  } catch (e) {
+    // 如果是被 abort 取消，通常不用印錯誤（避免 console 一直紅）
+    if (e?.name !== "AbortError") console.error("Gemini combo via Netlify error:", e);
+  } finally {
+    aiAbort = null; // ★ 這裡：確保結束後清掉
+  }
+
+  return fallbackText;
+}
+
+// 問完全部，產生推薦結果（一次性顯示最終文案）
+async function finishQuestionFlow() {
+  dialogChoicesEl.innerHTML = "";
+  dialogLabelEl.textContent = "AI貓店長";
+
+  // 一樣先走「翻菜單」過場
+  const waitingText =
+    "好，資料收集完成，本喵來翻一下今天的菜單…\n\n" +
+    "你先在吧台前稍微等等，聽到喵一聲的時候，就代表我想好了。🐾";
+
+  // 等這段打完之後，再進入計算＋Gemini 流程
+  typeText(waitingText, 32, async () => {
+    const combo = pickRecommendations();
+
+    // 跟昨天一樣：真的湊不出組合時的處理
+    if (!combo.meal && !combo.drinks.length && !combo.dessert) {
+      dialogChoicesEl.innerHTML = "";
+      const text =
+        "嗯… 依照你剛剛給的條件，本喵暫時湊不出一個很滿意的組合。\n\n" +
+        "要不要稍微放寬一點條件，或換個心情，我們再重來一次？";
+      typeText(text, 32, () => {
+        dialogChoicesEl.innerHTML = "";
+        addDialogButton("好，放寬一點再試試", () => startQuestionFlow());
+        addDialogButton("先這樣，我自己翻實體菜單就好", () => {
+          dialogChoicesEl.innerHTML = "";
+          typeText(
+            "沒問題，本喵就在吧台這邊，如果你翻到一半還是卡住，再叫我一聲就好。",
+            32
+          );
+        });
+      });
+      return;
+    }
+
+    // 先算本地 fallback，給 Gemini 當備用
+    const fallbackStory = generateComboFallback(combo);
+
+    // 像昨天那樣先有一行品名總結
+    const { meal, drinks, dessert } = combo;
+    const namesLineParts = [];
+    if (meal) namesLineParts.push(`主餐：${meal.name}`);
+    if (drinks.length)
+      namesLineParts.push(`飲品：${drinks.map(d => d.name).join("、")}`);
+    if (dessert) namesLineParts.push(`甜點：${dessert.name}`);
+    const namesLine = namesLineParts.join("｜");
+
+    // 簡化：只保留品名那一行當標題
+    const intro = namesLine;
+
+    // 關掉對話框
+    dialogChoicesEl.innerHTML = "";
+    dialogBoxEl.classList.remove("visible");
+
+    // 先把組合卡片畫出來
+    renderComboCards(combo);
+
+    // 先顯示「intro + fallback」，然後打開面板＋loading 遮罩
+    resultStoryEl.textContent = intro + "\n\n" + fallbackStory;
+    // ✅ 開啟結果面板＋套用動畫＆背景模糊
+resultPanelEl.classList.remove("hidden");
+resultPanelEl.classList.add("show");
+document.querySelector(".pixel-screen").classList.add("with-result");
+
+    resultLoadingEl.classList.remove("hidden");
+    playSfx(sfxLevelUp);
+
+    // 在背景問 Gemini：成功就回 Gemini 文案，錯誤就回 fallback
+    const finalStory = await getAIComboReason(combo, fallbackStory);
+
+    // 拿到最終文案後，關掉 loading，更新文字
+    resultLoadingEl.classList.add("hidden");
+    resultStoryEl.textContent = intro + "\n\n" + finalStory;
+  });
+}
+
+
+
+/* 問卷流程用狀態重置 */
+function resetAiState() {
+  state.goals = [];
+  state.prefs = {
+    vegetarian:false,
+    noBeef:false,
+    avoidMilk:false,
+    noIce:false,
+    period:false,
+    pregnant:false,
+    noCaffeine:false
+  };
+
+  state.mood = null;
+  state.purpose = null;         // ★ 新增
+  state.bodyNeeds = { light:false, nourish:false, warm:false };
+
+  // 主餐偏好
+  state.mealSizePref   = null;   // "light" | "full"
+  state.mealFlavorPref = null;   // "fresh" | "rich"
+  state.mealBaseBias   = [];     // ["toast","pizza","pasta"]
+
+  // 甜點人格
+  state.dessertPersona = null;
+
+  // 流程 flag
+  state._askedDrink   = false;
+  state._askedMeal    = false;
+  state._askedDessert = false;
+
+  state.timeHour = new Date().getHours();
+}
+
+/* 問卷入口 */
+function startQuestionFlow() {
+  resetAiState();
+  dialogLabelEl.textContent = "AI貓店長";
+  dialogChoicesEl.innerHTML = "";
+
+  // 關鍵：重開對話框、關掉結果面板
+  dialogBoxEl.classList.add("visible");
+  resultPanelEl.classList.add("hidden");
+
+  const text =
+    `好的 ${state.userName || "旅行者"}。` +
+    "接下來我會用幾個簡單的小問題，幫你找出今天最適合的一套組合。";
+
+  typeText(text, 32, () => {
+    dialogChoicesEl.innerHTML = "";
+    addDialogButton("好，開始幫我選", askGoalStep);
+  });
+}
+
+
+/* 今天要排哪些：主餐 / 飲料 / 甜點（可複選） */
+function askGoalStep() {
+  dialogChoicesEl.innerHTML = "";
+  dialogLabelEl.textContent = "AI貓店長";
+
+  const text =
+    "你有想好需要我幫你推薦哪一些品項嗎？\n" +
+    "可以複選，但至少要選一個喔。";
+
+  typeText(text, 32, () => {
+    dialogChoicesEl.innerHTML = "";
+
+    const selected = new Set();
+    const options = [
+      {
+        id: "meal",
+        icon: "🍛",
+        title: "有點餓，想要補一點HP！",
+        sub: "找一份暖胃的食物吧"
+      },
+      {
+        id: "drink",
+        icon: "🍹",
+        title: "一定要先來一杯喝的啊！",
+        sub: "來咖啡廳沒有點個飲品是不是哪裡怪怪的"
+      },
+      {
+        id: "dessert",
+        icon: "🍰",
+        title: "沒甜點，療癒度會少很多",
+        sub: "選一份治癒我的甜點胃，開心滿分"
+      }
+    ];
+
+    options.forEach(opt => {
+      const btn = document.createElement("button");
+      btn.className = "dialog-btn choice-card";
+      btn.innerHTML =
+        `<span class="goal-emoji">${opt.icon}</span>` +
+        `<span class="goal-text">` +
+          `<span class="goal-title">${opt.title}</span>` +
+          `<span class="goal-sub">${opt.sub}</span>` +
+        `</span>`;
+      btn.addEventListener("click", () => {
+        playSfx(sfxClick);
+        if (selected.has(opt.id)) {
+          selected.delete(opt.id);
+          btn.classList.remove("active-goal");
+        } else {
+          selected.add(opt.id);
+          btn.classList.add("active-goal");
+        }
+      });
+      dialogChoicesEl.appendChild(btn);
+    });
+
+    const nextBtn = document.createElement("button");
+    nextBtn.className = "dialog-btn choice-card";
+    nextBtn.textContent = "選好了，下一步";
+    nextBtn.addEventListener("click", () => {
+      playSfx(sfxCheck);
+      if (!selected.size) {
+        dialogChoicesEl.innerHTML = "";
+        typeText("至少選一個目標，本喵才知道要從哪裡開始幫你想。", 32, () => {
+          addDialogButton("好，再選一次", askGoalStep);
+        });
+        return;
+      }
+      state.goals = Array.from(selected);
+      askRestrictStep();
+    });
+    dialogChoicesEl.appendChild(nextBtn);
+  });
+}
+
+
+/* 身體 / 飲食限制 */
+function askRestrictStep() {
+  dialogChoicesEl.innerHTML = "";
+  dialogLabelEl.textContent = "AI貓店長";
+
+  const text =
+    "那在開始配餐之前，先跟我說，身體或飲食上有沒有需要我特別注意的地方呢？";
+
+  typeText(text, 32, () => {
+    dialogChoicesEl.innerHTML = "";
+
+    const hasFood  = state.goals.includes("meal") || state.goals.includes("dessert");
+    const hasMeal  = state.goals.includes("meal");
+    const hasDrink = state.goals.includes("drink");
+
+    let vegNoteEl = null;
+
+    function makePrefButton(key, icon, title, sub) {
+      const btn = document.createElement("button");
+      btn.className = "dialog-btn choice-card";
+      if (state.prefs[key]) btn.classList.add("active-goal");
+      btn.innerHTML =
+        `<span class="pref-emoji">${icon}</span>` +
+        `<span class="pref-text">` +
+          `<span class="pref-title">${title}</span>` +
+          (sub ? `<span class="pref-sub">${sub}</span>` : "") +
+        `</span>`;
+      btn.addEventListener("click", () => {
+        playSfx(sfxClick);
+        state.prefs[key] = !state.prefs[key];
+        btn.classList.toggle("active-goal", state.prefs[key]);
+        if (key === 'vegetarian' && vegNoteEl && hasFood) {
+          vegNoteEl.style.display = state.prefs.vegetarian ? "block" : "none";
+        }
+      });
+      dialogChoicesEl.appendChild(btn);
+      return btn;   // ← 一定要加這行
+    }
+
+    if (hasFood) {
+  const vegBtn = makePrefButton(
+    'vegetarian',
+    "🥦",
+    "蛋奶素",
+    "主餐以蛋奶素為主，幫你避開葷食。"
+  );
+
+  // 建立小提醒，位置放在「蛋奶素」按鈕正下方
+  vegNoteEl = document.createElement("div");
+  vegNoteEl.style.display    = state.prefs.vegetarian ? "block" : "none";
+  vegNoteEl.style.marginTop  = "4px";
+  vegNoteEl.style.marginLeft = "32px";    // 視覺上稍微縮進，讓它像附註（可依畫面調整）
+  vegNoteEl.style.fontSize   = "11px";
+  vegNoteEl.style.color      = "#c04a00";
+  vegNoteEl.style.lineHeight = "1.5";
+  vegNoteEl.textContent =
+    "小提醒：店裡目前沒有「全素」餐點，只有蛋奶素選項。\n" +
+    "如果你是吃全素，建議先點飲料就好了喔。";
+
+  // 插入在蛋奶素按鈕的下一個位置
+  vegBtn.parentNode.insertBefore(vegNoteEl, vegBtn.nextSibling);
+}
+
+    if (hasMeal) {
+      makePrefButton('noBeef',      "🐮", "不能吃牛肉", "既然有禁忌，那我們還是避開牛肉製品吧。");
+    }
+    if (hasDrink) {
+      makePrefButton('noIce',       "🧊", "不愛喝冰飲", "看來是注重養身的朋友啊～那就不要冰的吧！");
+      makePrefButton('period',      "🩸", "好朋友期間", "姨媽都來了，會痛痛的還是先不要吧！");
+      makePrefButton('pregnant',    "🤰", "孕媽咪狀態", "有些東西可能不適合這個時候喝喔！");
+      makePrefButton('avoidMilk',   "🥛", "鮮奶我不行", "是乳糖不耐症啊，讓我們先避開鮮奶吧。");
+      makePrefButton('noCaffeine',  "🚫", "不要咖啡因", "今天的攝取量夠了，再喝下去就不用睡了。");
+    }
+    // ★ 你要在這裡插入 afterRestrictDone()
+    // -------------------------------------------------
+    function afterRestrictDone() {
+      // 有選飲料就先問「今天的目標」
+      if (state.goals.includes("drink")) {
+        askPurposeStep();
+      } else {
+        goNextQuestionStep();
+      }
+    }
+    // -------------------------------------------------
+
+    const noLimitBtn = document.createElement("button");
+    noLimitBtn.className = "dialog-btn choice-card";
+    noLimitBtn.textContent = "都可以 我沒有特別需求";
+    noLimitBtn.addEventListener("click", () => {
+      playSfx(sfxCheck);
+      state.prefs = {
+        vegetarian:false,
+        noBeef:false,
+        avoidMilk:false,
+        noIce:false,
+        period:false,
+        pregnant:false,
+        noCaffeine:false
+      };
+      afterRestrictDone();   // ← 這裡改成呼叫 helper
+    });
+    dialogChoicesEl.appendChild(noLimitBtn);
+
+    const nextBtn = document.createElement("button");
+    nextBtn.className = "dialog-btn choice-card";
+    nextBtn.textContent = "好，就照這些吧！";
+    nextBtn.addEventListener("click", () => {
+      playSfx(sfxCheck);
+      afterRestrictDone();   // ← 這裡也改成呼叫 helper
+    });
+    dialogChoicesEl.appendChild(nextBtn);
+  });
+}
+
+
+/* 問卷流程控制：drink → meal → dessert */
+function goNextQuestionStep() {
+  if (!state._askedDrink && state.goals.includes("drink")) {
+    state._askedDrink = true;
+    askDrinkMoodStep();
+  } else if (!state._askedMeal && state.goals.includes("meal")) {
+    state._askedMeal = true;
+    askMealSizeStep();
+  } else if (!state._askedDessert && state.goals.includes("dessert")) {
+    state._askedDessert = true;
+    askDessertPersonaStep();
+  } else {
+    finishQuestionFlow();
+  }
+}
+
+/* 共用：像 mood-card 那種卡片按鈕 */
+function createCardButton(icon, title, sub, onClick) {
+  const btn = document.createElement("button");
+  btn.className = "dialog-btn choice-card";
+  btn.innerHTML =
+    '<span class="mood-emoji">' + icon + '</span>' +
+    '<span class="mood-text">' +
+      '<span class="mood-title">' + title + '</span>' +
+      (sub ? '<span class="mood-sub">' + sub + '</span>' : '') +
+    '</span>';
+  btn.addEventListener("click", () => {
+    playSfx(sfxClick);
+    onClick && onClick();
+  });
+  dialogChoicesEl.appendChild(btn);
+}
+
+// ★ 把你這段 askPurposeStep 貼在這裡
+function askPurposeStep() {
+  dialogChoicesEl.innerHTML = "";
+  dialogLabelEl.textContent = "AI貓店長";
+
+  const text =
+    "那今天來聊療貓，主要是想做什麼呢？\n" +
+    "選一個最接近你此刻的「任務模式」。";
+
+  typeText(text, 32, () => {
+    dialogChoicesEl.innerHTML = "";
+
+    // 1）認真唸書 / 工作模式
+    createCardButton(
+      "📚",
+      "認真唸書 / 工作模式",
+      "今天的重點是處理事情，需要飲料當工作夥伴",
+      () => {
+        state.purpose = "study";
+        goNextQuestionStep();
+      }
+    );
+
+    // 2）跟朋友來聊天放鬆
+    createCardButton(
+      "🗣️",
+      "跟朋友來聊天放鬆",
+      "重點是聊天和陪伴，飲料是舒服的背景音",
+      () => {
+        state.purpose = "chat";
+        goNextQuestionStep();
+      }
+    );
+
+    // 3）慕名而來想拍好看的
+    createCardButton(
+      "📸",
+      "慕名而來想拍好看的",
+      "想點一杯視覺有記憶點、好拍照的飲品",
+      () => {
+        state.purpose = "photo";
+        goNextQuestionStep();
+      }
+    );
+
+    // 4）就順路來擼個貓
+    createCardButton(
+      "🐾",
+      "就順路來擼個貓",
+      "沒有特別安排，只想被貓和飲料安靜陪著",
+      () => {
+        state.purpose = "cat";
+        goNextQuestionStep();
+      }
+    );
+
+    // 5）有點心事，想安靜整理
+    createCardButton(
+      "🕯️",
+      "有點心事，想安靜整理",
+      "需要一杯可以慢慢喝、陪你整理心情的",
+      () => {
+        state.purpose = "heal";
+        goNextQuestionStep();
+      }
+    );
+
+    // 6）想慶祝一下 / 約會
+    createCardButton(
+      "🎉",
+      "想慶祝一下 / 約會",
+      "今天想來點儀式感，飲料要有點存在感",
+      () => {
+        state.purpose = "celebrate";
+        goNextQuestionStep();
+      }
+    );
+  });
+}
+
+
+/* 飲料：心情卡片 */
+function askDrinkMoodStep() {
+  dialogChoicesEl.innerHTML = "";
+  dialogLabelEl.textContent = "AI貓店長";
+
+  const text =
+    "那在幫你想飲料之前，先抓一下你今天整體的狀態～\n" +
+    "直覺選一個最像現在的你就好。";
+
+  typeText(text, 32, () => {
+    dialogChoicesEl.innerHTML = "";
+
+  // 腦袋有點鈍，需要清醒
+    createCardButton(
+      "🧠",
+      "腦袋有點鈍，想清醒一點",
+      "需要專注一下工作或讀書，用飲料幫忙醒腦",
+      () => {
+        state.mood = "focus";
+        goNextQuestionStep();
+      }
+    );
+
+    // 心情悶
+    createCardButton(
+      "🌧️",
+      "心有點悶，提不起勁",
+      "想被一杯溫柔的飲料安慰一下",
+      () => {
+        state.mood = "down";
+        goNextQuestionStep();
+      }
+    );
+
+    // 很累
+    createCardButton(
+      "🔋",
+      "身體有點累，電量偏低",
+      "需要好好充電，把自己補回來",
+      () => {
+        state.mood = "tired";
+        goNextQuestionStep();
+      }
+    );
+
+    // 今天還不錯、心情輕鬆（但不說慶祝）
+    createCardButton(
+      "🌤️",
+      "今天整體還不錯，心情輕鬆",
+      "想找一杯陪你把好狀態延續下去的飲料",
+      () => {
+        state.mood = "happy";
+        goNextQuestionStep();
+      }
+    );
+
+    // 普普通通
+    createCardButton(
+      "😶",
+      "就很日常的一天",
+      "沒有特別情緒，只想安靜喝一杯陪自己",
+      () => {
+        state.mood = "neutral";
+        goNextQuestionStep();
+      }
+    );
+
+    // 交給命運
+    createCardButton(
+      "🎲",
+      "想交給命運決定看看",
+      "今天就讓貓店長幫你抽一個牌",
+      () => {
+        state.mood = "lucky";
+        goNextQuestionStep();
+      }
+    );
+  });
+}
+
+/* 主餐：輕食 or 飽食 */
+function askMealSizeStep() {
+  dialogChoicesEl.innerHTML = "";
+  dialogLabelEl.textContent = "AI貓店長";
+
+  const text =
+    "那主餐部分，今天比較想要「先墊個肚子」還是「慢慢地吃飽一點」呢？";
+
+  typeText(text, 32, () => {
+    dialogChoicesEl.innerHTML = "";
+
+    createCardButton("🥪", "想吃輕食就好", "好像沒有這麼餓，簡單就好", () => {
+      state.mealSizePref = "light";
+      goNextQuestionStep();
+    });
+    createCardButton("🍝", "想慢慢地來吃頓飯吧", "今天這一餐就是重點，我想要吃飽", () => {
+      state.mealSizePref = "full";
+      goNextQuestionStep();
+    });
+  });
+}
+
+/* 主餐：清爽 or 濃郁 */
+function askMealFlavorStep() {
+  dialogChoicesEl.innerHTML = "";
+  dialogLabelEl.textContent = "AI貓店長";
+
+  const text =
+    "口味上，今天比較想吃「清爽一點」還是「濃郁、重口味一點」？";
+
+  typeText(text, 32, () => {
+    dialogChoicesEl.innerHTML = "";
+
+    createCardButton(
+      "🌿",
+      "清爽一點的",
+      "蕃茄、海鮮，整體偏爽口一點的料理",
+      () => {
+        state.mealFlavorPref = "fresh";
+        goNextQuestionStep();          // 選完往下一題
+      }
+    );
+
+    createCardButton(
+      "🍖",
+      "濃郁、有罪惡感的",
+      "起司、奶油、肉感比較重的料理",
+      () => {
+        state.mealFlavorPref = "rich";
+        goNextQuestionStep();          // 選完往下一題
+      }
+    );
+  });
+}
+
+
+
+/* 甜點人格：5 張巴斯克人格卡 */
+function askDessertPersonaStep() {
+  dialogChoicesEl.innerHTML = "";
+  dialogLabelEl.textContent = "AI貓店長";
+
+  const text =
+    "最後，甜點這邊，本喵想用一個小小的「甜點人格測驗」來幫你挑一塊。\n\n" +
+    "以下幾種狀態，你比較像哪一種？直覺選一個就好。";
+
+  typeText(text, 32, () => {
+    dialogChoicesEl.innerHTML = "";
+
+    // === 5 張人格卡 ===
+    createCardButton(
+      "🧱",
+      "穩定派・簡單就好",
+      "喜歡穩定、不喜歡太多驚喜與變化",
+      () => {
+        state.dessertPersona = "original";
+        goNextQuestionStep();      // ← 用新版流程控制，不直接結束
+      }
+    );
+
+    createCardButton(
+      "🍵",
+      "傳統派・重視文化",
+      "喜歡茶韻、傳統感，享受慢慢品的氣氛",
+      () => {
+        state.dessertPersona = "tieguanyin";
+        goNextQuestionStep();
+      }
+    );
+
+    createCardButton(
+      "🍫",
+      "療癒派・需要被甜甜包圍",
+      "想要一口下去就被甜度好好抱一下，重口一點也可以",
+      () => {
+        state.dessertPersona = "choco";
+        goNextQuestionStep();
+      }
+    );
+
+    createCardButton(
+      "🍃",
+      "大人味・日式風情",
+      "帶一點苦、「啊是成熟大人的感覺吧！」那種 vibe",
+      () => {
+        state.dessertPersona = "matcha";
+        goNextQuestionStep();
+      }
+    );
+
+    createCardButton(
+      "🎲",
+      "冒險派・想玩玩命運牌",
+      "願意交出選擇權、想試試期間限定與驚喜",
+      () => {
+        state.dessertPersona = "adventure";
+        goNextQuestionStep();
+      }
+    );
+  });
+}
+
+
+</script>
+
+</body>
+</html>
