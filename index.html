@@ -1784,6 +1784,7 @@ async function fetchWeather() {
       { signal: weatherAbort.signal }
     );
     const data = await res.json();
+    console.log("📦 完整回應 data:", data);
     if (!data.current_weather) throw new Error("no current_weather");
 
     const cw = data.current_weather;
