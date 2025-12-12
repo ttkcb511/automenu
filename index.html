@@ -2832,16 +2832,23 @@ ${contextSummary}
   try {
     console.log("準備呼叫 Gemini proxy");
 
-    const res = await fetch("https://square-base-169d-ai-cat-gemini-proxy.talktokittiesbar511.workers.dev", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt })
-    });
+    // ❶ 這裡：呼叫你的 Cloudflare Worker
+    const res = await fetch(
+      "https://square-base-169d-ai-cat-gemini-proxy.talktokittiesbar511.workers.dev",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt })
+      }
+    );
 
     console.log("Gemini proxy 狀態:", res.status);
 
+    // ❷ 這裡：把 Worker 回傳的 JSON 讀出來
     const data = await res.json();
-    console.log("Gemini 回應 data:", data);   // ← 要加在這裡
+    console.log("Gemini 回應 data:", data);
+
+    // ❸ 這裡：只從 data.text 取出文字，清理後回傳
     const text = data?.text;
 
     if (text && typeof text === "string") {
@@ -2849,14 +2856,13 @@ ${contextSummary}
         .replace(/\*/g, "")
         .replace("暫時無法連線到 AI 服務，先用本地推薦代替喔！", "")
         .trim();
-      
+
       console.log("🧹 清理後的文字:", cleaned.slice(0, 50));
-      
-      // 驗證並回傳
+
       if (validateAiText(cleaned, combo)) {
-         return cleaned;
+        return cleaned;    // ✅ 成功就用 AI 文案
       } else {
-         console.warn("⚠️ AI 文案驗證未通過 (太短或格式錯誤)");
+        console.warn("⚠️ AI 文案驗證未通過 (太短或格式錯誤)");
       }
     } else {
       console.warn("⚠️ 沒有有效的 text 欄位");
@@ -2871,7 +2877,7 @@ ${contextSummary}
   }
 
   console.log("📋 發生錯誤或驗證失敗，最終使用 fallback");
-  return fallbackText;
+  return fallbackText;     // 走不到上面就回到本地文案
 }
 
 // 問完全部，產生推薦結果（一次性顯示最終文案）
