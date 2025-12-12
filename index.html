@@ -2757,10 +2757,12 @@ function buildContextSummary(combo) {
 }
 
 /* 確保 Gemini 回傳的文字裡，只會提到這次 combo 裡真的有的品項名稱 */
+// ✅ 把原本那個複雜版本整段換掉，改成這個
 function validateAiText(aiText, combo) {
   if (!aiText || typeof aiText !== "string") return false;
   return aiText.trim().length > 10;
 }
+
 
 /* 呼叫 Netlify 上的 gemini-combo Function 拿敘事文案 */
 async function getAIComboReason(combo, fallbackText) {
@@ -3499,6 +3501,9 @@ function askDessertPersonaStep() {
     );
   });
 }
+
+
 </script>
+
 </body>
 </html>
