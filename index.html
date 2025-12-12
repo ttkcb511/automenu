@@ -1310,37 +1310,64 @@ body {
     0 0 24px var(--neon-cool);
 }
 .result-cta-note{
-  margin-top: 8px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(180,140,90,0.32);
-  background: linear-gradient(135deg, rgba(255,255,255,0.28), rgba(255,255,255,0.10));
-  backdrop-filter: blur(14px) saturate(1.2);
-  -webkit-backdrop-filter: blur(14px) saturate(1.2);
-  box-shadow: 0 10px 24px rgba(0,0,0,0.10);
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(180,140,90,0.25);
+  background: rgba(255,255,255,0.30);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
-.result-cta-title{
+.result-cta-row{
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.result-cta-label{
   font-size: 11px;
-  font-weight: 750;
-  letter-spacing: .12em;
+  font-weight: 700;
   color: var(--kk-accent);
-  margin-bottom: 4px;
 }
 
-.result-cta-text{
-  font-size: 12px;
-  line-height: 1.6;
+.result-cta-text-inline{
+  font-size: 11px;
+  line-height: 1.5;
   color: var(--kk-text-main);
-  opacity: .92;
+}
+
+.result-cta-toggle{
+  margin-top: 4px;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(180,140,90,0.35);
+  background: rgba(255,255,255,0.6);
+  cursor: pointer;
 }
 
 .result-cta-links{
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 8px;
+  margin-top: 6px;
+  display: none;
+  flex-direction: column;
+  gap: 4px;
 }
+
+.result-cta-links.open{
+  display: flex;
+}
+
+.result-cta-link{
+  font-size: 11px;
+  text-decoration: none;
+  color: var(--kk-text-main);
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.4);
+  background: rgba(255,255,255,0.3);
+}
+
 
 .result-cta-link{
   font-size: 12px;
@@ -1467,17 +1494,35 @@ body {
 
   <!-- ✅ 這段就是你要新增的小提醒（放在卡片下方、按鈕上方） -->
   <div class="result-cta-note" id="resultCtaNote">
-    <div class="result-cta-title">小提醒</div>
-    <div class="result-cta-text">
-      如果覺得我們的這個小程式還不錯，也歡迎在 IG 或 Threads 發照片/動態標籤我們喔～我們會搜集後不定時舉辦抽獎小活動！
-    </div>
-    <div class="result-cta-links">
-      <a class="result-cta-link" href="https://www.instagram.com/ttkcafebar/" target="_blank" rel="noopener">咖啡廳 IG：@ttkcafebar</a>
-      <a class="result-cta-link" href="https://www.threads.net/@ttkcafebar" target="_blank" rel="noopener">咖啡廳 Threads：@ttkcafebar</a>
-      <a class="result-cta-link" href="https://www.instagram.com/talktokitties.bar/" target="_blank" rel="noopener">共學空間 IG：@talktokitties.bar</a>
-      <a class="result-cta-link" href="https://www.threads.net/@talktokitties.bar" target="_blank" rel="noopener">共學空間 Threads：@talktokitties.bar</a>
-    </div>
+  <div class="result-cta-row">
+    <span class="result-cta-label">小提醒：</span>
+    <span class="result-cta-text-inline">
+      如果覺得我們的服務還不錯，也歡迎在 IG / Threads 標記我們，我們會不定時舉辦抽獎小活動！
+    </span>
   </div>
+  <button class="result-cta-toggle" type="button" onclick="
+    const links = document.getElementById('resultCtaLinks');
+    links.classList.toggle('open');
+  ">
+    查看社群帳號
+  </button>
+
+  <div class="result-cta-links" id="resultCtaLinks">
+    <a class="result-cta-link" href="https://www.instagram.com/ttkcafebar/" target="_blank" rel="noopener">
+      咖啡廳 IG：@ttkcafebar
+    </a>
+    <a class="result-cta-link" href="https://www.threads.net/@ttkcafebar" target="_blank" rel="noopener">
+      咖啡廳 Threads：@ttkcafebar
+    </a>
+    <a class="result-cta-link" href="https://www.instagram.com/talktokitties.bar/" target="_blank" rel="noopener">
+      共學空間 IG：@talktokitties.bar
+    </a>
+    <a class="result-cta-link" href="https://www.threads.net/@talktokitties.bar" target="_blank" rel="noopener">
+      共學空間 Threads：@talktokitties.bar
+    </a>
+  </div>
+</div>
+
 
   <div class="result-actions">
     <button id="btnConfirm" class="dialog-btn dialog-btn-primary" type="button">我就要這份，拿去櫃台</button>
