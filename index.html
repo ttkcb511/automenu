@@ -2369,12 +2369,12 @@ try {
     if (aiAbort) aiAbort.abort();
     aiAbort = new AbortController();
 
-    const res = await fetch("https://square-base-169d-ai-cat-gemini-proxy.talktokittiesbar511.workers.dev",{
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt }),
-      signal: aiAbort.signal // ★ 這裡：把 signal 加進 fetch
-    });
+    const res = await fetch("https://square-base-169d-ai-cat-gemini-proxy.talktokittiesbar511.workers.dev", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ prompt }),
+  signal: aiAbort.signal
+});
 
     const data = await res.json();
     const text = data?.text;
