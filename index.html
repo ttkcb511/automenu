@@ -1361,6 +1361,16 @@ body {
   border-color: rgba(255,255,255,0.55);
 }
 
+#resultStory, .result-story {
+  white-space: pre-wrap;   /* 保留 \n，並且自動換行 */
+  word-break: break-word;  /* 避免長字串撐爆 */
+}
+
+#dialogText, .dialog-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 </style>
 </head>
 <body>
@@ -1544,6 +1554,32 @@ const btnExitEl       = document.getElementById("btnExit");
 const resultLoadingEl = document.getElementById("resultLoading");
 
 const pixelScreenEl   = document.querySelector(".pixel-screen");
+function ensureResultPanelLayout() {
+  const cta = document.getElementById("resultCtaNote");
+  const actions = resultPanelEl.querySelector(".result-actions");
+  if (!cta || !actions) return;
+
+  // 1) 如果 actions 被包進 CTA 裡（常見於 div 結構錯位），先把 actions 拿出來
+  if (cta.contains(actions)) {
+    cta.parentNode.insertBefore(actions, cta.nextSibling);
+  }
+
+  // 2) CTA 一定要在 resultPanel 裡，並且放在 actions 前面
+  if (!resultPanelEl.contains(cta)) {
+    resultPanelEl.insertBefore(cta, actions);
+  } else {
+    // 已在 resultPanel 裡也校正順序：cta 在 actions 前
+    if (cta.nextElementSibling !== actions) {
+      resultPanelEl.insertBefore(cta, actions);
+    }
+  }
+
+  // 3) actions 也必須在 resultPanel 裡（避免被搬走）
+  if (!resultPanelEl.contains(actions)) {
+    resultPanelEl.appendChild(actions);
+  }
+}
+
 
 /* =========================
    Abort controllers
@@ -1560,6 +1596,7 @@ function abortPendingRequests() {
    Result panel helpers
 ========================= */
 function openResultPanel() {
+  ensureResultPanelLayout();
   resultPanelEl.classList.add("show");
   pixelScreenEl.classList.add("with-result");
 }
@@ -1685,6 +1722,39 @@ function stopSfx(audioEl) {
     audioEl.currentTime = 0;
   } catch (_) {}
 }
+
+function stopAllAudioHard() {
+// BGM
+stopSfx(bgmSelect);
+stopSfx(bgmInside);
+
+// 會 loop 的 SFX 也一起停掉（避免鎖屏還在講話/走路/思考）
+stopSfx(sfxTalk);
+stopSfx(sfxStep);
+stopSfx(sfxThink);
+}
+
+function onAppHidden() {
+stopAllAudioHard();
+lastBgm = null;
+}
+
+function onAppVisible() {
+// 需求：不要自動續播，所以這裡不做任何 play()
+}
+
+document.addEventListener("visibilitychange", () => {
+if (document.hidden) onAppHidden();
+else onAppVisible();
+});
+
+// iOS Safari：切 app / 鎖螢幕有時 blur 比 visibilitychange 更可靠
+window.addEventListener("blur", onAppHidden, true);
+window.addEventListener("focus", onAppVisible, true);
+
+// pagehide 也補一層（返回上一頁/多工切換時常見）
+window.addEventListener("pagehide", onAppHidden);
+window.addEventListener("pageshow", onAppVisible);
 
 /* =========================
    Thinking (loading) SFX
@@ -2995,21 +3065,24 @@ async function finishQuestionFlow() {
     renderComboCards(combo);
 
     // 先顯示「intro + fallback」，然後打開面板＋loading 遮罩
-    resultStoryEl.textContent = intro + "\n\n" + fallbackStory;
-    // ✅ 開啟結果面板＋套用動畫＆背景模糊
+resultStoryEl.textContent = intro + "\n\n" + fallbackStory;
 resultPanelEl.classList.remove("hidden");
 resultPanelEl.classList.add("show");
 document.querySelector(".pixel-screen").classList.add("with-result");
 
-    resultLoadingEl.classList.remove("hidden");
-    playSfx(sfxLevelUp);
+// ✅ 1) 先啟動 thinking（會顯示 loading overlay + 播 think.mp3 loop）
+setThinking(true);
 
-    // 在背景問 Gemini：成功就回 Gemini 文案，錯誤就回 fallback
-    const finalStory = await getAIComboReason(combo, fallbackStory);
+// ✅ 2) level-up 改成延後一點播，避免 iOS/Safari 同一時間點搶音訊導致 think 播不出來
+setTimeout(() => playSfx(sfxLevelUp), 120);
 
-    // 拿到最終文案後，關掉 loading，更新文字
-    resultLoadingEl.classList.add("hidden");
-    resultStoryEl.textContent = intro + "\n\n" + finalStory;
+const finalStory = await getAIComboReason(combo, fallbackStory);
+
+// ✅ 3) Gemini 回來就關 thinking（會隱藏 overlay + stop think.mp3）
+setThinking(false);
+
+resultStoryEl.textContent = intro + "\n\n" + finalStory;
+
   });
 }
 
