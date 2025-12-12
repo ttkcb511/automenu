@@ -2831,42 +2831,61 @@ ${contextSummary}
 
 
 try {
-    // ★ 這裡：每次要問 Gemini 前，先取消上一個還在跑的請求
-    if (aiAbort) aiAbort.abort();
-    aiAbort = new AbortController();
+  if (aiAbort) aiAbort.abort();
+  aiAbort = new AbortController();
 
-    const res = await fetch("https://square-base-169d-ai-cat-gemini-proxy.talktokittiesbar511.workers.dev", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ prompt }),
-  signal: aiAbort.signal
-});
-    console.log("Gemini proxy 已送出，res.status =", res.status);
+  const res = await fetch("https://square-base-169d-ai-cat-gemini-proxy.talktokittiesbar511.workers.dev", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
+    signal: aiAbort.signal
+  });
+  
+  console.log("✅ Gemini proxy 狀態:", res.status, res.statusText);
 
-
-
-    const data = await res.json();
-    console.log("Gemini proxy 回傳 data =", data);
-
-    const text = data?.text;
-
-if (text && typeof text === "string") {
-  const cleaned = text
-    .replace(/\*/g, "")
-    .replace("暫時無法連線到 AI 服務，先用本地推薦代替喔！", "")
-    .trim();
-  if (validateAiText(cleaned, combo)) return cleaned;
-}
-
-  } catch (e) {
-    // 如果是被 abort 取消，通常不用印錯誤（避免 console 一直紅）
-    if (e?.name !== "AbortError") console.error("Gemini combo via Netlify error:", e);
-  } finally {
-    aiAbort = null; // ★ 這裡：確保結束後清掉
+  // ⭐ 關鍵：先檢查狀態碼
+  if (!res.ok) {
+    const errorText = await res.text();
+    console.error("❌ API 返回錯誤:", res.status, errorText);
+    throw new Error(`API error: ${res.status}`);
   }
 
-  return fallbackText;
+  const data = await res.json();
+  console.log("📦 完整回應 data:", JSON.stringify(data, null, 2));
+
+  const text = data?.text;
+  console.log("📝 提取的 text:", text?.slice(0, 100));
+
+  if (text && typeof text === "string") {
+    const cleaned = text
+      .replace(/\*/g, "")
+      .replace("暫時無法連線到 AI 服務，先用本地推薦代替喔！", "")
+      .trim();
+    
+    console.log("🧹 清理後的文字:", cleaned.slice(0, 100));
+    
+    if (cleaned.length > 10) {
+      console.log("✅ 使用 AI 文案");
+      return cleaned;
+    } else {
+      console.warn("⚠️ AI 文案太短，使用 fallback");
+    }
+  } else {
+    console.warn("⚠️ 沒有有效的 text 欄位");
+  }
+
+} catch (e) {
+  if (e?.name !== "AbortError") {
+    console.error("❌ Gemini 錯誤:", e);
+    console.error("錯誤堆疊:", e.stack);
+  }
+} finally {
+  aiAbort = null;
 }
+
+console.log("📋 最終使用 fallback");
+return fallbackText;
+
 
 // 問完全部，產生推薦結果（一次性顯示最終文案）
 async function finishQuestionFlow() {
