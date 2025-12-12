@@ -1525,22 +1525,30 @@ body {
 
 
 <script>
+/* =========================
+   DOM refs
+========================= */
 const dialogTextEl    = document.getElementById("dialogText");
 const dialogLabelEl   = document.getElementById("dialogLabel");
 const dialogChoicesEl = document.getElementById("dialogChoices");
 const dialogBoxEl     = document.querySelector(".dialog-box");
+
 const resultPanelEl   = document.getElementById("resultPanel");
 const resultStoryEl   = document.getElementById("resultStory");
 const resultCardsEl   = document.getElementById("resultCards");
+
 const btnRedoEl       = document.getElementById("btnRedo");
-const resultLoadingEl = document.getElementById("resultLoading"); // ← 新增
-const btnConfirmEl = document.getElementById("btnConfirm");
-const btnExitEl    = document.getElementById("btnExit");
+const btnConfirmEl    = document.getElementById("btnConfirm");
+const btnExitEl       = document.getElementById("btnExit");
 
+const resultLoadingEl = document.getElementById("resultLoading");
 
+const pixelScreenEl   = document.querySelector(".pixel-screen");
+
+/* =========================
+   Abort controllers
+========================= */
 let aiAbort = null;
-
-// ===== 非同步請求控制（避免重來後舊請求回來覆蓋新結果）=====
 let weatherAbort = null;
 
 function abortPendingRequests() {
@@ -1548,28 +1556,12 @@ function abortPendingRequests() {
   if (aiAbort) { aiAbort.abort(); aiAbort = null; }
 }
 
-// ===== 統一：結果面板顯示/隱藏 =====
-const pixelScreenEl = document.querySelector(".pixel-screen");
-
+/* =========================
+   Result panel helpers
+========================= */
 function openResultPanel() {
   resultPanelEl.classList.add("show");
   pixelScreenEl.classList.add("with-result");
-}
-
-function exitToSelect(){
-  // 先關結果（會 stop think、清空、abort pending）[file:4]
-  closeResultPanel();
-
-  // 清掉出示模式樣式
-  resultPanelEl.classList.remove("present");
-
-  // 回到選角畫面
-  screenGame.classList.remove("active");
-  screenSelect.classList.add("active");
-
-  // 停室內 BGM，避免回去還在播（你有 bgmInside/bgmSelect）[file:4]
-  stopSfx(bgmInside);
-  // 如果你希望回選角時自動播 bgmSelect，也可以改成 playSfx(bgmSelect)
 }
 
 function closeResultPanel() {
@@ -1581,28 +1573,43 @@ function closeResultPanel() {
   abortPendingRequests();
 }
 
+function exitToSelect() {
+  closeResultPanel();
 
+  // 清掉出示模式樣式
+  resultPanelEl.classList.remove("present");
 
-// 只保留這一個重來事件（確保你已刪掉檔案尾端那個重複 listener）
+  // 回到選角畫面
+  screenGame.classList.remove("active");
+  screenSelect.classList.add("active");
+
+  // 回到選角一定停掉所有 BGM
+  stopSfx(bgmInside);
+  stopSfx(bgmSelect);
+}
+
+/* Buttons */
 btnRedoEl.addEventListener("click", (e) => {
   e.stopPropagation();
   playSfx(sfxClick);
   closeResultPanel();
   startQuestionFlow();
 });
- btnConfirmEl.addEventListener("click", () => {
+
+btnConfirmEl.addEventListener("click", () => {
   playSfx(sfxCheck);
   resultPanelEl.classList.add("present");
-  // 這裡也可以順便把 scroll 定位到最上面，讓店員一眼看到品項
   resultPanelEl.scrollTo({ top: 0, behavior: "smooth" });
 });
 
 btnExitEl.addEventListener("click", () => {
   playSfx(sfxClick);
-  exitToSelect();   // 下面會新增這個 function
+  exitToSelect();
 });
 
-// ===== 統一：AI 問答狀態重置 =====
+/* =========================
+   AI state reset
+========================= */
 const DEFAULT_PREFS = {
   vegetarian:false,
   noBeef:false,
@@ -1634,35 +1641,54 @@ function resetAiState() {
   state.timeHour = new Date().getHours();
 }
 
-
+/* =========================
+   Status bar
+========================= */
 const statusTagEl  = document.getElementById("statusTag");
 const statusTimeEl = document.getElementById("statusTime");
 const statusTempEl = document.getElementById("statusTemp");
 
+/* =========================
+   Audio elements
+========================= */
 const sfxStep    = document.getElementById("sfxStep");
 const sfxOpen    = document.getElementById("sfxOpen");
 const sfxBell    = document.getElementById("sfxBell");
 const sfxTalk    = document.getElementById("sfxTalk");
+
 const bgmSelect  = document.getElementById("bgmSelect");
+const bgmInside  = document.getElementById("bgmInside");
+
 const sfxSelect  = document.getElementById("sfxSelect");
 const sfxCheck   = document.getElementById("sfxCheck");
-const bgmInside  = document.getElementById("bgmInside");
 const sfxClick   = document.getElementById("sfxClick");
 const sfxLevelUp = document.getElementById("sfxLevelUp");
-const sfxNo = document.getElementById('sfxNo');
-const sfxThink = document.getElementById('sfxThink');
+const sfxNo      = document.getElementById("sfxNo");
+const sfxThink   = document.getElementById("sfxThink");
 
-
+/* =========================
+   Audio helpers
+========================= */
 function playSfx(audioEl) {
   if (!audioEl) return;
-  audioEl.currentTime = 0;
-  audioEl.play();
+  try {
+    audioEl.currentTime = 0;
+    const p = audioEl.play();
+    if (p && typeof p.catch === "function") p.catch(() => {});
+  } catch (_) {}
 }
+
 function stopSfx(audioEl) {
   if (!audioEl) return;
-  audioEl.pause();
-  audioEl.currentTime = 0;
+  try {
+    audioEl.pause();
+    audioEl.currentTime = 0;
+  } catch (_) {}
 }
+
+/* =========================
+   Thinking (loading) SFX
+========================= */
 let thinkingRef = 0;
 
 function enterThinking() {
@@ -1685,46 +1711,114 @@ function resetThinkingHard() {
   stopSfx(sfxThink);
 }
 
-
 function setThinking(isThinking) {
   if (isThinking) enterThinking();
   else leaveThinking();
 }
 
+/* =========================
+   iOS audio unlock (只做一次)
+========================= */
+let audioUnlocked = false;
+let bgmSelectStarted = false;
 
+async function unlockAudioOnce() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
 
+  const audios = [
+    bgmSelect, bgmInside,
+    sfxOpen, sfxBell, sfxThink, sfxLevelUp,
+    sfxSelect, sfxCheck, sfxClick, sfxNo, sfxTalk, sfxStep
+  ].filter(Boolean);
 
-/* 天氣＋AI 狀態：open‑meteo + 菜單問卷 */
+  for (const a of audios) {
+    try {
+      a.muted = true;
+      await a.play();
+      a.pause();
+      a.currentTime = 0;
+      a.muted = false;
+    } catch (_) {}
+  }
+}
+
+async function startSelectBgmOnce() {
+  if (bgmSelectStarted) return;
+  bgmSelectStarted = true;
+  try {
+    bgmSelect.muted = false;
+    bgmSelect.volume = 1;
+    await bgmSelect.play();
+  } catch (_) {
+    bgmSelectStarted = false;
+  }
+}
+
+/* =========================
+   Stop BGM on background/lock-screen
+   (預設：回來「不」自動續播)
+========================= */
+const AUTO_RESUME_BGM = false;
+let lastBgm = null; // 'select' | 'inside' | null
+
+function pauseAllBgm() {
+  try { if (bgmSelect && !bgmSelect.paused) bgmSelect.pause(); } catch (_) {}
+  try { if (bgmInside && !bgmInside.paused) bgmInside.pause(); } catch (_) {}
+}
+
+async function resumeLastBgmIfNeeded() {
+  if (!AUTO_RESUME_BGM) return;
+  try {
+    if (lastBgm === "select") await bgmSelect.play();
+    if (lastBgm === "inside") await bgmInside.play();
+  } catch (_) {}
+}
+
+function onAppHidden() {
+  if (bgmInside && !bgmInside.paused) lastBgm = "inside";
+  else if (bgmSelect && !bgmSelect.paused) lastBgm = "select";
+  else lastBgm = null;
+
+  pauseAllBgm();
+}
+
+function onAppVisible() {
+  resumeLastBgmIfNeeded();
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) onAppHidden();
+  else onAppVisible();
+});
+
+window.addEventListener("pagehide", onAppHidden);
+window.addEventListener("pageshow", onAppVisible);
+
+/* =========================
+   Weather + AI state
+========================= */
 const state = {
-  step: 'game',
-  userName: '',
+  step: "game",
+  userName: "",
   goals: [],
-  prefs: {
-    vegetarian:false,
-    noBeef:false,
-    avoidMilk:false,
-    noIce:false,
-    period:false,
-    pregnant:false,
-    noCaffeine:false
-  },
+  prefs: { ...DEFAULT_PREFS },
   mood: null,
-  purpose: null,                // ★ 新增：今天的「目的」
-  bodyNeeds: { light:false, nourish:false, warm:false },
+  purpose: null,
+  bodyNeeds: { ...DEFAULT_BODY_NEEDS },
   weather: {
     temp: 24,
-    tag: 'mild',
-    condition: 'none',
-    desc: ''
+    tag: "mild",
+    condition: "none",
+    desc: ""
   },
   timeHour: new Date().getHours()
 };
 
-/* 狀態列時間 */
 function updateClock() {
   const now = new Date();
-  const hh = now.getHours().toString().padStart(2,'0');
-  const mm = now.getMinutes().toString().padStart(2,'0');
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
   statusTimeEl.textContent = `${hh}:${mm}`;
   state.timeHour = now.getHours();
 }
@@ -1735,9 +1829,13 @@ function isRainCode(code) {
   return (code >= 51 && code <= 67) || (code >= 80 && code <= 99);
 }
 
-let weatherCache = { ts: 0, data: null, lastOkTs: 0 }; // 10 分鐘內不重抓
-fetchWeather();
+function fmtHHMM(ts) {
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
 
+let weatherCache = { ts: 0, data: null, lastOkTs: 0 };
+fetchWeather();
 
 async function fetchWeather() {
   const now = Date.now();
@@ -1761,7 +1859,6 @@ async function fetchWeather() {
       { signal: weatherAbort.signal }
     );
     const data = await res.json();
-    console.log("天氣 API data:", data);
     if (!data.current_weather) throw new Error("no current_weather");
 
     const cw = data.current_weather;
@@ -1780,11 +1877,11 @@ async function fetchWeather() {
     const tag = isHot ? "hot" : (isCold ? "cold" : "mild");
     const condition = raining ? "rain" : "none";
 
-    weatherCache = { ts: Date.now(), data: { temp, desc, tag, condition }, lastOkTs: Date.now() };
-    function fmtHHMM(ts){
-  const d = new Date(ts);
-  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-}
+    weatherCache = {
+      ts: Date.now(),
+      data: { temp, desc, tag, condition },
+      lastOkTs: Date.now()
+    };
 
     state.weather.temp = temp;
     state.weather.tag = tag;
@@ -1794,46 +1891,42 @@ async function fetchWeather() {
     statusTagEl.textContent  = desc;
     statusTempEl.textContent = `${temp}°C · 台中大里`;
   } catch (e) {
-  if (weatherCache.data && weatherCache.lastOkTs) {
-    const { temp, desc } = weatherCache.data;
-    statusTagEl.textContent  = `${desc}（更新失敗，最後更新 ${fmtHHMM(weatherCache.lastOkTs)}）`;
-    statusTempEl.textContent = `${temp}°C · 台中大里`;
-  } else {
-    statusTagEl.textContent  = "狀態讀取失敗";
-    statusTempEl.textContent = "—°C · —";
-  }
-}
-
-    finally {
+    if (weatherCache.data && weatherCache.lastOkTs) {
+      const { temp, desc } = weatherCache.data;
+      statusTagEl.textContent  = `${desc}（更新失敗，最後更新 ${fmtHHMM(weatherCache.lastOkTs)}）`;
+      statusTempEl.textContent = `${temp}°C · 台中大里`;
+    } else {
+      statusTagEl.textContent  = "狀態讀取失敗";
+      statusTempEl.textContent = "—°C · —";
+    }
+  } finally {
     weatherAbort = null;
   }
 }
 
-
+/* =========================
+   Typewriter + choices
+========================= */
 let typeTimer = null;
+
 function typeText(text, speed, onDone) {
-  if (typeTimer) {
-    clearInterval(typeTimer);
-    typeTimer = null;
-  }
+  if (typeTimer) { clearInterval(typeTimer); typeTimer = null; }
   stopSfx(sfxTalk);
 
   dialogTextEl.textContent = "";
   let i = 0;
-  const len = text.length;
 
   playSfx(sfxTalk);
 
   typeTimer = setInterval(() => {
-    if (i >= len) {
+    if (i >= text.length) {
       clearInterval(typeTimer);
       typeTimer = null;
       stopSfx(sfxTalk);
       onDone && onDone();
       return;
     }
-    dialogTextEl.textContent += text[i];
-    i++;
+    dialogTextEl.textContent += text[i++];
   }, speed);
 }
 
@@ -1848,6 +1941,9 @@ function addDialogButton(label, handler) {
   dialogChoicesEl.appendChild(btn);
 }
 
+/* =========================
+   Game/character selection
+========================= */
 let currentRole = "boy";
 let nickname = "今天的客人";
 
@@ -1865,25 +1961,25 @@ const sceneInsideFg    = document.getElementById("sceneInsideFg");
 const heroEl     = document.getElementById("hero");
 const catClerkEl = document.getElementById("catClerk");
 
-// ===== 角色選擇：四格待機動畫（全域）=====
+/* 角色選擇：四格待機動畫 */
 const ROLE_FRAMES = {
   boy: [
-    'assets/hero-boy-front-1.png',
-    'assets/hero-boy-front-2.png',
-    'assets/hero-boy-front-3.png',
-    'assets/hero-boy-front-4.png'
+    "assets/hero-boy-front-1.png",
+    "assets/hero-boy-front-2.png",
+    "assets/hero-boy-front-3.png",
+    "assets/hero-boy-front-4.png"
   ],
   girl: [
-    'assets/hero-girl-front-1.png',
-    'assets/hero-girl-front-2.png',
-    'assets/hero-girl-front-3.png',
-    'assets/hero-girl-front-4.png'
+    "assets/hero-girl-front-1.png",
+    "assets/hero-girl-front-2.png",
+    "assets/hero-girl-front-3.png",
+    "assets/hero-girl-front-4.png"
   ],
   cat: [
-    'assets/hero-cat-front-1.png',
-    'assets/hero-cat-front-2.png',
-    'assets/hero-cat-front-3.png',
-    'assets/hero-cat-front-4.png'
+    "assets/hero-cat-front-1.png",
+    "assets/hero-cat-front-2.png",
+    "assets/hero-cat-front-3.png",
+    "assets/hero-cat-front-4.png"
   ]
 };
 
@@ -1898,51 +1994,42 @@ function setRoleSprite(role, frameIndex) {
 function stopSelectAnim() {
   if (selectAnimTimer) clearInterval(selectAnimTimer);
   selectAnimTimer = null;
-  Object.keys(ROLE_FRAMES).forEach(role => setRoleSprite(role, 0)); // 全部回到第 1 張
+  Object.keys(ROLE_FRAMES).forEach(role => setRoleSprite(role, 0));
 }
 
 function startSelectAnim(role) {
-  // 先把其他角色回到第 1 張
   Object.keys(ROLE_FRAMES).forEach(r => { if (r !== role) setRoleSprite(r, 0); });
-
   if (selectAnimTimer) clearInterval(selectAnimTimer);
 
-  let idx = 0; // 0 = 第 1 張
+  let idx = 0;
   selectAnimTimer = setInterval(() => {
     idx = (idx + 1) % ROLE_FRAMES[role].length;
     setRoleSprite(role, idx);
   }, 140);
 }
 
-
-/* 選角色 */
+/* 選角色：只做「選擇」(不要在這裡綁 btnStart，也不要在這裡播 bgm) */
 charCards.forEach(card => {
   card.addEventListener("click", () => {
     const role = card.dataset.role;
-    startSelectAnim(role);            // 新增：點誰就播誰的 4 張 [file:1]
+    startSelectAnim(role);
     playSfx(sfxSelect);
+
     charCards.forEach(c => c.classList.remove("active"));
     card.classList.add("active");
-    currentRole = card.dataset.role;
-    heroEl.className = "hero hero--" + currentRole + "-front";
-    btnStart.disabled = false;
 
+    currentRole = role;
+    heroEl.className = `hero hero--${currentRole}-front`;
+    btnStart.disabled = false;
   });
 });
 
+/* 開始按鈕：iOS 解鎖 + 播選角 BGM（只一次） */
 btnStart.addEventListener("click", async () => {
-  // iOS 解鎖音訊：一定要在使用者按鈕當下做
-  try {
-    bgmSelect.muted = false;
-    bgmSelect.volume = 1;
-    await bgmSelect.play();
-  } catch(e) {}
+  await unlockAudioOnce();
+  await startSelectBgmOnce();
 
   playSfx(sfxCheck);
-
-  // 不要在這裡 stop bgmSelect（至少先讓它播起來）
-  // stopSfx(bgmSelect);
-
   stopSelectAnim();
 
   nickname = nicknameInput.value.trim() || "今天的客人";
@@ -1951,28 +2038,32 @@ btnStart.addEventListener("click", async () => {
 
   screenSelect.classList.remove("active");
   screenGame.classList.add("active");
+
   startWalkInSequence();
 });
 
-
-/* 走路動畫＋腳步 */
+/* =========================
+   Walk animation + scenes
+========================= */
 let walkFramesTimer = null;
+
 function startWalkFrames() {
   stopWalkFrames();
   playSfx(sfxStep);
 
   let toggle = false;
   walkFramesTimer = setInterval(() => {
-    const base = "hero hero--" + currentRole + "-back-";
+    const base = `hero hero--${currentRole}-back-`;
     heroEl.className = base + (toggle ? "walk" : "idle");
     toggle = !toggle;
   }, 160);
 }
+
 function stopWalkFrames() {
   if (walkFramesTimer) clearInterval(walkFramesTimer);
   walkFramesTimer = null;
   stopSfx(sfxStep);
-  heroEl.className = "hero hero--" + currentRole + "-back-idle";
+  heroEl.className = `hero hero--${currentRole}-back-idle`;
 }
 
 /* 外景：左下走到門口 */
@@ -1987,16 +2078,13 @@ function startWalkInSequence() {
   dialogChoicesEl.innerHTML = "";
   dialogTextEl.textContent  = "";
 
-  const startX = 40;
-  const startY = 380;
-  const endX   = 280;
-  const endY   = 260;
+  const startX = 40, startY = 380;
+  const endX = 280, endY = 260;
 
   const totalSteps = 42;
   let step = 0;
 
-  let x = startX;
-  let y = startY;
+  let x = startX, y = startY;
   heroEl.style.left = x + "px";
   heroEl.style.top  = y + "px";
 
@@ -2007,35 +2095,31 @@ function startWalkInSequence() {
 
   const walkTimerPos = setInterval(() => {
     step++;
-
-    x += dx;
-    y += dy;
+    x += dx; y += dy;
     heroEl.style.left = x + "px";
     heroEl.style.top  = y + "px";
 
     if (step >= totalSteps) {
       clearInterval(walkTimerPos);
       stopWalkFrames();
+
       heroEl.style.left = endX + "px";
       heroEl.style.top  = endY + "px";
-      heroEl.className  = "hero hero--" + currentRole + "-back-idle";
+      heroEl.className  = `hero hero--${currentRole}-back-idle`;
 
-      // 客人站好後，貓店長從舉手改成手放下
       catClerkEl.classList.remove("cat-clerk-idle");
       catClerkEl.classList.add("cat-clerk-talk");
 
       dialogBoxEl.classList.add("visible");
 
       const introWalkText =
-        "Hi「" + nickname + "」，歡迎光臨 聊療貓bar！ \n\n" +
-        "接下來就交給我們店裡最厲害的 AI 貓店長，" +
-        "幫你翻翻菜單，推薦一份最適合你今天的餐點吧！";
+        `Hi「${nickname}」，歡迎光臨 聊療貓bar！\n\n` +
+        `接下來就交給我們店裡最厲害的 AI 貓店長，` +
+        `幫你翻翻菜單，推薦一份最適合你今天的餐點吧！`;
 
       typeText(introWalkText, 35, () => {
         playSfx(sfxOpen);
-        setTimeout(() => {
-          enterShopIntro();
-        }, 2000);
+        setTimeout(() => enterShopIntro(), 2000);
       });
     }
   }, 80);
@@ -2048,9 +2132,9 @@ function enterShopIntro() {
   sceneInsideBase.classList.add("active");
   sceneInsideFg.classList.add("active");
 
-  // 一進門就看到舉手的貓店長（強制 reset class）
   catClerkEl.className = "cat-clerk cat-clerk-idle visible";
   catClerkEl.classList.add("visible");
+
   playSfx(sfxBell);
 
   stopSfx(bgmSelect);
@@ -2059,16 +2143,13 @@ function enterShopIntro() {
   dialogBoxEl.classList.remove("visible");
   stopWalkFrames();
 
-  const startX = 40;
-  const startY = 380;
-  const endX   = 240;
-  const endY   = 220;
+  const startX = 40, startY = 380;
+  const endX = 240, endY = 220;
 
   const totalSteps = 30;
   let step = 0;
 
-  let x = startX;
-  let y = startY;
+  let x = startX, y = startY;
   heroEl.style.left = x + "px";
   heroEl.style.top  = y + "px";
 
@@ -2079,20 +2160,18 @@ function enterShopIntro() {
 
   const walkInsideTimer = setInterval(() => {
     step++;
-
-    x += dx;
-    y += dy;
+    x += dx; y += dy;
     heroEl.style.left = x + "px";
     heroEl.style.top  = y + "px";
 
     if (step >= totalSteps) {
       clearInterval(walkInsideTimer);
       stopWalkFrames();
+
       heroEl.style.left = endX + "px";
       heroEl.style.top  = endY + "px";
-      heroEl.className  = "hero hero--" + currentRole + "-back-idle";
+      heroEl.className  = `hero hero--${currentRole}-back-idle`;
 
-      // 客人站到面前的瞬間：貓從舉手 -> 手放下
       catClerkEl.classList.remove("cat-clerk-idle");
       catClerkEl.classList.add("cat-clerk-talk");
 
@@ -2108,37 +2187,33 @@ function showIntroDialogue() {
   dialogChoicesEl.innerHTML = "";
 
   const introText =
-    "喵～ 你好啊～" + nickname + "既然你會來到這裡，代表你今天的選擇困難症有又發作了是吧？\n\n" +
-    "沒關係，就讓本喵來幫你找出最適合你的餐點吧，如何？。";
+    `喵～ 你好啊～${nickname} 既然你會來到這裡，代表你今天的選擇困難症又發作了是吧？\n\n` +
+    `沒關係，就讓本喵來幫你找出最適合你的餐點吧，如何？`;
 
   typeText(introText, 35, () => {
     dialogChoicesEl.innerHTML = "";
-    addDialogButton("好啊，拜託你了！", () => {
-      startQuestionFlow();
-    });
-    addDialogButton("不要，我想自己看菜單", () => {
-      handleFakeRefuse();
-    });
+    addDialogButton("好啊，拜託你了！", () => startQuestionFlow());
+    addDialogButton("不要，我想自己看菜單", () => handleFakeRefuse());
   });
 }
 
 function handleFakeRefuse() {
-  playSfx(sfxNo); // 新增：回覆同時播 no.mp3
+  playSfx(sfxNo);
+
   dialogChoicesEl.innerHTML = "";
   dialogLabelEl.textContent = "AI貓店長";
 
   const text =
-    "欸欸欸，那你剛剛是為什麼還要特地掃 QRcode來看我啦？\n\n" +
+    "欸欸欸，那你剛剛是為什麼還要特地掃 QRcode 來看我啦？\n\n" +
     "都走到櫃檯前了，代表你其實超需要本喵的建議吧。\n" +
-    "來嘛～～給我 30 秒，本喵可以幫你少猶豫10分鐘耶。";
+    "來嘛～～給我 30 秒，本喵可以幫你少猶豫 10 分鐘耶。";
 
   typeText(text, 35, () => {
     dialogChoicesEl.innerHTML = "";
-    addDialogButton("好啦好啦，你開始問吧", () => {
-      startQuestionFlow();
-    });
+    addDialogButton("好啦好啦，你開始問吧", () => startQuestionFlow());
   });
 }
+
 
 /* ================== AI 貓店長：菜單資料＋打分邏輯 ================== */
 
@@ -2799,7 +2874,7 @@ ${contextSummary}
   - 使用自然的繁體中文，像跟朋友說話，有人味，不要制式客服腔。
   - 語氣可以溫柔、帶一點可愛的貓店長感，但不要講太多廢話。
   - 句子可以短一點沒關係，多用生活感的形容詞（暖暖的、慢慢來、安穩一點…）。
-  - 對話排版順暢容易閱讀，不要擠成一大團
+  - 對話排版、分段落、順暢容易閱讀，不要擠成一大團
 
 5.品項限制
   - 不要出現任何菜單上沒有的品項名稱。
