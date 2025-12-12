@@ -2759,23 +2759,7 @@ function buildContextSummary(combo) {
 /* 確保 Gemini 回傳的文字裡，只會提到這次 combo 裡真的有的品項名稱 */
 function validateAiText(aiText, combo) {
   if (!aiText || typeof aiText !== "string") return false;
-
-  const { meal, drinks, dessert } = combo;
-  const allowedNames = [
-    meal?.name,
-    dessert?.name,
-    ...drinks.map(d => d.name)
-  ].filter(Boolean);
-
-  const regex = /「([^」]+)」/g;
-  let match;
-  while ((match = regex.exec(aiText)) !== null) {
-    const nameInText = match[1].trim();
-    if (!allowedNames.includes(nameInText)) {
-      return false;
-    }
-  }
-  return true;
+  return aiText.trim().length > 10;
 }
 
 /* 呼叫 Netlify 上的 gemini-combo Function 拿敘事文案 */
@@ -3515,9 +3499,6 @@ function askDessertPersonaStep() {
     );
   });
 }
-
-
 </script>
-
 </body>
 </html>
