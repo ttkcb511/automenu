@@ -244,7 +244,7 @@ body {
 
 .char-role-note {
   font-size: 10px;
-  c color: var(--kk-text-sub);  /* 比現在深一階 */
+  color: var(--kk-text-sub);  /* 比現在深一階 */
   margin-top: 3px;
   line-height: 1.4;
 }
@@ -1605,6 +1605,7 @@ function closeResultPanel() {
 }
 
 
+
 // 只保留這一個重來事件（確保你已刪掉檔案尾端那個重複 listener）
 btnRedoEl.addEventListener("click", (e) => {
   e.stopPropagation();
@@ -2818,7 +2819,7 @@ ${contextSummary}
 
 5.品項限制
   - 不要出現任何菜單上沒有的品項名稱。
-  - 每個被提到的品項名稱，都用全形引號括起來並且改為粗體字，例如：「原味巴斯克乳酪蛋糕」。
+  - 每個被提到的品項名稱，都用全形引號括起來，例如：「原味巴斯克乳酪蛋糕」。
 
 6.決策與推銷
   - 你的任務是「解釋為什麼這組很貼近他」，不是幫他做決定。
@@ -2827,68 +2828,57 @@ ${contextSummary}
 請依照以上規則，產出一段完整的回覆，不要再重複條列規則，只呈現給客人看的最終對話內容即可。
 `.trim();
 
-  console.log("準備呼叫 Gemini proxy，contextSummary:", contextSummary.slice(0, 60));
+  console.log("準備呼叫 Gemini proxy");
 
+  try {
+    if (aiAbort) aiAbort.abort();
+    aiAbort = new AbortController();
 
-try {
-  if (aiAbort) aiAbort.abort();
-  aiAbort = new AbortController();
-
-  const res = await fetch("https://square-base-169d-ai-cat-gemini-proxy.talktokittiesbar511.workers.dev", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt }),
-    signal: aiAbort.signal
-  });
-  
-  console.log("✅ Gemini proxy 狀態:", res.status, res.statusText);
-
-  // ⭐ 關鍵：先檢查狀態碼
-  if (!res.ok) {
-    const errorText = await res.text();
-    console.error("❌ API 返回錯誤:", res.status, errorText);
-    throw new Error(`API error: ${res.status}`);
-  }
-
-  const data = await res.json();
-  console.log("📦 完整回應 data:", JSON.stringify(data, null, 2));
-
-  const text = data?.text;
-  console.log("📝 提取的 text:", text?.slice(0, 100));
-
-  if (text && typeof text === "string") {
-  const cleaned = text
-    .replace(/\*/g, "")
-    .replace("暫時無法連線到 AI 服務，先用本地推薦代替喔！", "")
-    .trim();
-  if (validateAiText(cleaned, combo)) return cleaned;
-}
-
+    const res = await fetch("https://square-base-169d-ai-cat-gemini-proxy.talktokittiesbar511.workers.dev", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+      signal: aiAbort.signal
+    });
     
-    console.log("🧹 清理後的文字:", cleaned.slice(0, 100));
-    
-    if (cleaned.length > 10) {
-      console.log("✅ 使用 AI 文案");
-      return cleaned;
-    } else {
-      console.warn("⚠️ AI 文案太短，使用 fallback");
+    console.log("✅ Gemini proxy 狀態:", res.status);
+
+    if (!res.ok) {
+      throw new Error(`API error: ${res.status}`);
     }
-  } else {
-    console.warn("⚠️ 沒有有效的 text 欄位");
+
+    const data = await res.json();
+    const text = data?.text;
+
+    if (text && typeof text === "string") {
+      const cleaned = text
+        .replace(/\*/g, "")
+        .replace("暫時無法連線到 AI 服務，先用本地推薦代替喔！", "")
+        .trim();
+      
+      console.log("🧹 清理後的文字:", cleaned.slice(0, 50));
+      
+      // 驗證並回傳
+      if (validateAiText(cleaned, combo)) {
+         return cleaned;
+      } else {
+         console.warn("⚠️ AI 文案驗證未通過 (太短或格式錯誤)");
+      }
+    } else {
+      console.warn("⚠️ 沒有有效的 text 欄位");
+    }
+
+  } catch (e) {
+    if (e?.name !== "AbortError") {
+      console.error("❌ Gemini 錯誤:", e);
+    }
+  } finally {
+    aiAbort = null;
   }
 
-} catch (e) {
-  if (e?.name !== "AbortError") {
-    console.error("❌ Gemini 錯誤:", e);
-    console.error("錯誤堆疊:", e.stack);
-  }
-} finally {
-  aiAbort = null;
+  console.log("📋 發生錯誤或驗證失敗，最終使用 fallback");
+  return fallbackText;
 }
-
-console.log("📋 最終使用 fallback");
-return fallbackText;
-
 
 // 問完全部，產生推薦結果（一次性顯示最終文案）
 async function finishQuestionFlow() {
@@ -3419,11 +3409,11 @@ function askMealSizeStep() {
 
     createCardButton("🥪", "想吃輕食就好", "好像沒有這麼餓，簡單就好", () => {
       state.mealSizePref = "light";
-      goNextQuestionStep();
+      askMealFlavorStep();  // <--- 改成去問口味
     });
     createCardButton("🍝", "想慢慢地來吃頓飯吧", "今天這一餐就是重點，我想要吃飽", () => {
       state.mealSizePref = "full";
-      goNextQuestionStep();
+      askMealFlavorStep();  // <--- 改成去問口味
     });
   });
 }
