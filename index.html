@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8" />
-<title>聊療貓 Bar · AI 貓店長 8bit</title>
+<title>聊療貓 Bar · AI 貓店長 16bit</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
 :root {
@@ -2857,10 +2857,13 @@ try {
   console.log("📝 提取的 text:", text?.slice(0, 100));
 
   if (text && typeof text === "string") {
-    const cleaned = text
-      .replace(/\*/g, "")
-      .replace("暫時無法連線到 AI 服務，先用本地推薦代替喔！", "")
-      .trim();
+  const cleaned = text
+    .replace(/\*/g, "")
+    .replace("暫時無法連線到 AI 服務，先用本地推薦代替喔！", "")
+    .trim();
+  if (validateAiText(cleaned, combo)) return cleaned;
+}
+
     
     console.log("🧹 清理後的文字:", cleaned.slice(0, 100));
     
