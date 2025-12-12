@@ -2850,10 +2850,14 @@ try {
 
     const text = data?.text;
 
-    if (text && typeof text === "string") {
-      const cleaned = text.replace(/\*/g, "").trim();
-      if (validateAiText(cleaned, combo)) return cleaned;
-    }
+if (text && typeof text === "string") {
+  const cleaned = text
+    .replace(/\*/g, "")
+    .replace("暫時無法連線到 AI 服務，先用本地推薦代替喔！", "")
+    .trim();
+  if (validateAiText(cleaned, combo)) return cleaned;
+}
+
   } catch (e) {
     // 如果是被 abort 取消，通常不用印錯誤（避免 console 一直紅）
     if (e?.name !== "AbortError") console.error("Gemini combo via Netlify error:", e);
