@@ -2369,7 +2369,7 @@ try {
     if (aiAbort) aiAbort.abort();
     aiAbort = new AbortController();
 
-    const res = await fetch("/.netlify/functions/gemini-combo", {
+    const res = await fetch("https://square-base-169d-ai-cat-gemini-proxy.talktokittiesbar511.workers.dev",{
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt }),
