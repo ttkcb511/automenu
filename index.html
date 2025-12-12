@@ -2781,7 +2781,6 @@ function validateAiText(aiText, combo) {
 /* 呼叫 Netlify 上的 gemini-combo Function 拿敘事文案 */
 async function getAIComboReason(combo, fallbackText) {
   const contextSummary = buildContextSummary(combo);
-
   const prompt = `
 你是「聊療貓 Bar」的 AI 貓店長，也是一位很會照顧人心情的療癒系店員。
 你說話像在店裡跟熟客聊天，有畫面、有溫度，會真的看見對方現在的狀態，而不是只在唸菜單。
@@ -2842,6 +2841,9 @@ ${contextSummary}
 請依照以上規則，產出一段完整的回覆，不要再重複條列規則，只呈現給客人看的最終對話內容即可。
 `.trim();
 
+  console.log("準備呼叫 Gemini proxy，contextSummary:", contextSummary.slice(0, 60));
+
+
 try {
     // ★ 這裡：每次要問 Gemini 前，先取消上一個還在跑的請求
     if (aiAbort) aiAbort.abort();
@@ -2853,8 +2855,13 @@ try {
   body: JSON.stringify({ prompt }),
   signal: aiAbort.signal
 });
+    console.log("Gemini proxy 已送出，res.status =", res.status);
+
+
 
     const data = await res.json();
+    console.log("Gemini proxy 回傳 data =", data);
+
     const text = data?.text;
 
     if (text && typeof text === "string") {
