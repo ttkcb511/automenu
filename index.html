@@ -43,11 +43,11 @@ body {
   }
 }
 
-/* 小螢幕再順便拿掉多餘的上內距，讓畫面更貼近滿版 */
 @media (max-width: 480px) {
-  body {
-    padding-top: 0;
-    align-items: center;
+  body{
+    align-items: stretch;
+    justify-content: flex-start;
+    min-height: 100dvh;
   }
 }
 
@@ -82,17 +82,15 @@ body {
   color: #ddd;
 }
 
-/* 殼更像一台主機 */
-/* 殼本身改成淺色卡片感 */
-.game-shell {
-  width: 100%;
-  max-width: 380px;
-  background: var(--kk-surface-card);
-  border-radius: var(--kk-radius-lg);
-  border: 1px solid rgba(255,255,255,0.7);
-  box-shadow: var(--kk-shadow-strong);
-  padding: 16px 16px 18px;
-}
+ .game-shell{
+    width: 100%;
+    max-width: none;
+    min-height: 100dvh;
+    border-radius: 0;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+  }
 
 /* 對話框：亮底＋深字，記得保留 .visible 切換 */
 .dialog-box {
@@ -125,7 +123,6 @@ body {
 }
 
 
-
 .dialog-label {
   font-size: 11px;
   color: var(--kk-accent);
@@ -142,7 +139,6 @@ body {
   color: var(--kk-text-main);
   text-align: left;
 }
-
 
 
 .title-bar {
@@ -187,8 +183,11 @@ body {
   justify-content: flex-start;
   align-items: center;
 }
-.screen.active { display: flex; }
-
+  .screen.active{
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+  }
 #screen-select { padding-top: 6px; }
 .select-top {
   margin-bottom: 6px;
@@ -361,15 +360,13 @@ body {
   padding-top: 0;
 }
 
-.pixel-screen {
-  width: min(360px, 100%);
-  aspect-ratio: 9 / 11;           /* 取代固定 height */
-  border-radius: 12px;
-  background: #000;
-  overflow: hidden;
-  position: relative;
-  margin: 0 auto 6px;
-}
+ .pixel-screen{
+    flex: 1;
+    width: 100%;
+    max-width: none;
+    aspect-ratio: auto; /* 關掉固定比例 */
+    min-height: 0;
+  }
 
 /* 背景 base 層 */
 .scene-base {
@@ -825,6 +822,13 @@ body {
 }
 
 /* 整體背景：改成聊療貓系的溫暖米白色系 */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; }
+
+
 body {
   background: #F9F5F0;
 }
@@ -1954,10 +1958,23 @@ charCards.forEach(card => {
 });
 
 /* 第一次點畫面啟動 BGM */
-document.addEventListener("click", function initBgmOnce() {
-  playSfx(bgmSelect);
-  document.removeEventListener("click", initBgmOnce);
+btnStart.addEventListener("click", async () => {
+  // 這行是關鍵：在 iOS 上用「按下開始」這個 gesture 來解鎖音訊
+  try { await bgmSelect.play(); } catch(e) {}
+
+  playSfx(sfxCheck);
+  stopSfx(bgmSelect);
+  stopSelectAnim();
+
+  nickname = nicknameInput.value.trim() || "今天的客人";
+  state.userName = nickname;
+  state.timeHour = new Date().getHours();
+
+  screenSelect.classList.remove("active");
+  screenGame.classList.add("active");
+  startWalkInSequence();
 });
+
 
 btnStart.addEventListener("click", () => {
   playSfx(sfxCheck);
@@ -2823,7 +2840,7 @@ ${contextSummary}
   - 每個被提到的品項名稱，都用全形引號括起來，例如：「原味巴斯克乳酪蛋糕」。
 
 6.決策與推銷
-  - 你的任務是「解釋為什麼這組很貼近他」，不是幫他做決定。
+  - 你的任務是「解釋為什麼這組推薦很貼近他」，不是幫他做決定。
   - 不要使用強烈推銷語氣，不要保證任何效果（例如：一定改善、一定不痛）。
 
 請依照以上規則，產出一段完整的回覆，不要再重複條列規則，只呈現給客人看的最終對話內容即可。
