@@ -258,6 +258,15 @@ body {
   background-position: bottom center;
   image-rendering: pixelated;
 }
+.char-sprite-img{
+  display: block;
+  height: 64px;
+  margin: 0 auto 6px;
+  image-rendering: pixelated;
+}
+.char-sprite-img.boy{
+  width: 44px;
+}
 .char-sprite.boy  { width: 25px; background-image:url("assets/hero-boy-front.png"); }
 .char-sprite.girl { width: 28px; background-image:url("assets/hero-girl-front.png"); }
 .char-sprite.cat  { width: 39px; background-image:url("assets/hero-cat-front.png"); }
@@ -1084,6 +1093,9 @@ body {
 <audio id="bgmInside" src="assets/Chiptune_02.mp3"   preload="auto" loop></audio>
 <audio id="sfxClick"  src="assets/click.mp3"         preload="auto"></audio>
 <audio id="sfxLevelUp"  src="assets/level_up.mp3"    preload="auto"></audio>
+<audio id="sfxNo" src="assets/no.mp3" preload="auto"></audio>
+<audio id="sfxThink" src="assets/think.mp3" preload="auto" loop></audio>
+
 
 <div class="game-shell">
   <div class="title-bar">
@@ -1108,19 +1120,19 @@ body {
 
     <div class="char-grid">
       <div class="char-card" data-role="boy">
-        <div class="char-sprite boy"></div>
-        <div style="font-size:12px;">男生</div>
-        <div class="char-role-note">天氣很好 · 來吃頓好的吧！</div>
+          <img class="char-sprite-img" data-sprite="boy" src="assets/hero-boy-front-1.png" width="44" height="64" alt="">
+        <div style="font-size:12px;">男孩</div>
+        <div class="char-role-note">認真工作也要認真休息才可以！</div>
       </div>
       <div class="char-card" data-role="girl">
-        <div class="char-sprite girl"></div>
+        <img class="char-sprite-img" data-sprite="girl" src="assets/hero-girl-front-1.png" height="64" alt="">
         <div style="font-size:12px;">女生</div>
         <div class="char-role-note">今天有點累 · 想被好好照顧</div>
       </div>
       <div class="char-card" data-role="cat">
-        <div class="char-sprite cat"></div>
+        <img class="char-sprite-img" data-sprite="cat" src="assets/hero-cat-front-1.png" height="64" alt="">
         <div style="font-size:12px;">貓咪</div>
-        <div class="char-role-note">什麼都交給命運決定吧！</div>
+        <div class="char-role-note">我打全部都交給命運來安排！</div>
       </div>
     </div>
 
@@ -1231,6 +1243,9 @@ function closeResultPanel() {
   resultPanelEl.classList.remove("show");
   resultPanelEl.classList.add("hidden");
   pixelScreenEl.classList.remove("with-result");
+
+// 新增：確保 think.mp3 一定停
+  stopSfx(sfxThink);
   resultLoadingEl.classList.add("hidden");
   resultCardsEl.textContent = "";
   resultStoryEl.textContent = "";
@@ -1293,6 +1308,9 @@ const sfxCheck   = document.getElementById("sfxCheck");
 const bgmInside  = document.getElementById("bgmInside");
 const sfxClick   = document.getElementById("sfxClick");
 const sfxLevelUp = document.getElementById("sfxLevelUp");
+const sfxNo = document.getElementById('sfxNo');
+const sfxThink = document.getElementById('sfxThink');
+
 
 function playSfx(audioEl) {
   if (!audioEl) return;
@@ -1304,6 +1322,19 @@ function stopSfx(audioEl) {
   audioEl.pause();
   audioEl.currentTime = 0;
 }
+
+function setThinking(isThinking) {
+  if (isThinking) {
+    resultLoadingEl.classList.remove('hidden');
+    playSfx(sfxThink);
+  } else {
+    resultLoadingEl.classList.add('hidden');
+    stopSfx(sfxThink);
+  }
+}
+
+
+
 
 /* 天氣＋AI 狀態：open‑meteo + 菜單問卷 */
 const state = {
@@ -1462,15 +1493,68 @@ const sceneInsideFg    = document.getElementById("sceneInsideFg");
 const heroEl     = document.getElementById("hero");
 const catClerkEl = document.getElementById("catClerk");
 
+// ===== 角色選擇：四格待機動畫（全域）=====
+const ROLE_FRAMES = {
+  boy: [
+    'assets/hero-boy-front-1.png',
+    'assets/hero-boy-front-2.png',
+    'assets/hero-boy-front-3.png',
+    'assets/hero-boy-front-4.png'
+  ],
+  girl: [
+    'assets/hero-girl-front-1.png',
+    'assets/hero-girl-front-2.png',
+    'assets/hero-girl-front-3.png',
+    'assets/hero-girl-front-4.png'
+  ],
+  cat: [
+    'assets/hero-cat-front-1.png',
+    'assets/hero-cat-front-2.png',
+    'assets/hero-cat-front-3.png',
+    'assets/hero-cat-front-4.png'
+  ]
+};
+
+let selectAnimTimer = null;
+
+function setRoleSprite(role, frameIndex) {
+  const el = document.querySelector(`.char-sprite-img[data-sprite="${role}"]`);
+  if (!el) return;
+  el.src = ROLE_FRAMES[role][frameIndex];
+}
+
+function stopSelectAnim() {
+  if (selectAnimTimer) clearInterval(selectAnimTimer);
+  selectAnimTimer = null;
+  Object.keys(ROLE_FRAMES).forEach(role => setRoleSprite(role, 0)); // 全部回到第 1 張
+}
+
+function startSelectAnim(role) {
+  // 先把其他角色回到第 1 張
+  Object.keys(ROLE_FRAMES).forEach(r => { if (r !== role) setRoleSprite(r, 0); });
+
+  if (selectAnimTimer) clearInterval(selectAnimTimer);
+
+  let idx = 0; // 0 = 第 1 張
+  selectAnimTimer = setInterval(() => {
+    idx = (idx + 1) % ROLE_FRAMES[role].length;
+    setRoleSprite(role, idx);
+  }, 140);
+}
+
+
 /* 選角色 */
 charCards.forEach(card => {
   card.addEventListener("click", () => {
+    const role = card.dataset.role;
+    startSelectAnim(role);            // 新增：點誰就播誰的 4 張 [file:1]
     playSfx(sfxSelect);
     charCards.forEach(c => c.classList.remove("active"));
     card.classList.add("active");
     currentRole = card.dataset.role;
     heroEl.className = "hero hero--" + currentRole + "-front";
     btnStart.disabled = false;
+
   });
 });
 
@@ -1483,7 +1567,7 @@ document.addEventListener("click", function initBgmOnce() {
 btnStart.addEventListener("click", () => {
   playSfx(sfxCheck);
   stopSfx(bgmSelect);
-
+  stopSelectAnim(); // 進遊戲前把選角動畫停掉、回到第1張
   nickname = nicknameInput.value.trim() || "今天的客人";
   state.userName = nickname;
   state.timeHour = new Date().getHours();
@@ -1661,6 +1745,7 @@ function showIntroDialogue() {
 }
 
 function handleFakeRefuse() {
+  playSfx(sfxNo); // 新增：回覆同時播 no.mp3
   dialogChoicesEl.innerHTML = "";
   dialogLabelEl.textContent = "AI貓店長";
 
