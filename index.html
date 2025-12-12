@@ -1784,7 +1784,7 @@ async function fetchWeather() {
       { signal: weatherAbort.signal }
     );
     const data = await res.json();
-    console.log("📦 完整回應 data:", data);
+    console.log("天氣 API data:", data);
     if (!data.current_weather) throw new Error("no current_weather");
 
     const cw = data.current_weather;
@@ -2829,26 +2829,19 @@ ${contextSummary}
 請依照以上規則，產出一段完整的回覆，不要再重複條列規則，只呈現給客人看的最終對話內容即可。
 `.trim();
 
-  console.log("準備呼叫 Gemini proxy");
-
   try {
-    if (aiAbort) aiAbort.abort();
-    aiAbort = new AbortController();
+    console.log("準備呼叫 Gemini proxy");
 
     const res = await fetch("https://square-base-169d-ai-cat-gemini-proxy.talktokittiesbar511.workers.dev", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt }),
-      signal: aiAbort.signal
+      body: JSON.stringify({ prompt })
     });
-    
-    console.log("✅ Gemini proxy 狀態:", res.status);
 
-    if (!res.ok) {
-      throw new Error(`API error: ${res.status}`);
-    }
+    console.log("Gemini proxy 狀態:", res.status);
 
     const data = await res.json();
+    console.log("Gemini 回應 data:", data);   // ← 要加在這裡
     const text = data?.text;
 
     if (text && typeof text === "string") {
