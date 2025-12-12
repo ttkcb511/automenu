@@ -92,30 +92,32 @@ body {
     flex-direction: column;
   }
 
-/* 對話框：亮底＋深字，記得保留 .visible 切換 */
-.dialog-box {
-  width: min(340px, 100% - 20px);
-  padding: 10px 14px;
+.dialog-box{
+  width: min(520px, calc(100vw - 24px));
+  padding: 12px 14px;
   border-radius: 12px;
-  border: 1px solid var(--kk-line-soft);
-  background: linear-gradient(to bottom, #fffdf8, #fbead2);
-  box-shadow: 0 10px 24px rgba(0,0,0,0.18);
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--kk-text-main);
-  max-height: 220px;
+  border: 1px solid rgba(180,140,90,0.55);
+  background: linear-gradient(to bottom, rgba(255,255,255,0.96), rgba(249,239,227,0.96));
+  box-shadow: 0 14px 30px rgba(0,0,0,0.18);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+
+  font-size: 15px;
+  line-height: 1.75;
+
+  max-height: 42vh;      /* 放大：用視窗高度 */
   overflow-y: auto;
 
-  position: absolute;
+  position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  bottom: 6px;
-  z-index: 4;
+  bottom: calc(env(safe-area-inset-bottom) + 12px);
+  width: min(520px, calc(100vw - 24px));
+  max-height: 42vh;
+  overflow-y: auto;
+  z-index: 9999;
+  }
 
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.25s;
-}
 
 .dialog-box.visible {
   opacity: 1;
@@ -132,13 +134,7 @@ body {
   opacity: 0.9;
 }
 
-.dialog-text {
-  white-space: pre-line;
-  max-width: 310px;
-  margin: 2px auto 0;
-  color: var(--kk-text-main);
-  text-align: left;
-}
+dialog-text{ max-width: none; }
 
 
 .title-bar {
@@ -183,12 +179,13 @@ body {
   justify-content: flex-start;
   align-items: center;
 }
-  .screen.active{
+.screen.active{
   display: flex;
   flex: 1;
   width: 100%;
   min-height: 0;
 }
+
 #screen-select { padding-top: 6px; }
 .select-top {
   margin-bottom: 6px;
@@ -362,12 +359,20 @@ body {
 }
 
  .pixel-screen{
-    flex: 1;
-    width: 100%;
-    max-width: none;
-    aspect-ratio: auto; /* 關掉固定比例 */
-    min-height: 0;
-  }
+  width: min(360px, calc(100vw - 24px));
+  aspect-ratio: 9 / 11;
+  height: auto;
+  overflow: hidden;
+  position: relative;
+  background: #000;                 /* 當作螢幕底色 */
+  border: 2px solid #e2d4c4;        /* 外框線 */
+  border-radius: 16px;             /* 外框圓角 */
+  box-shadow: 0 10px 26px rgba(0,0,0,0.12);
+  overflow: hidden;                 /* 讓背景/角色不溢出圓角 */
+  box-shadow:
+  0 10px 26px rgba(0,0,0,0.12),
+  inset 0 0 0 1px rgba(255,255,255,0.35);
+}
 
 /* 背景 base 層 */
 .scene-base {
@@ -454,29 +459,6 @@ body {
   background-image: url("assets/cat-clerk-talk.png");
 }
 
-/* ===== 對話框 ===== */
-.dialog-box {
-  width: min(340px, 100% - 20px);
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid var(--kk-line-soft);
-  background:
-    linear-gradient(to bottom, rgba(255,255,255,0.96), rgba(249,239,227,0.96));
-  box-shadow: 0 10px 24px rgba(153,120,90,0.4);
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--kk-text-main);
-  max-height: 220px;
-  overflow-y: auto;
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 6px;
-  z-index: 4;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.25s;
-}
 
 .dialog-label {
   font-size: 11px;
@@ -834,11 +816,7 @@ body {
   background: #F9F5F0;
 }
 
-.pixel-screen {
-  background: #FFF8EF;
-  border: 2px solid #E2D4C4;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
-}
+
 
 /* ===== 按鈕樣式重新定義（for 你遊戲畫面裡的所有按鈕）===== */
 .pixel-screen button {
@@ -903,13 +881,7 @@ body {
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.22) !important;
 }
 
-/* 內部像 pixel 螢幕那塊，如果 class 叫 pixel-screen，就順便美化 */
-.pixel-screen {
-  background: #FFFDF9;
-  border-radius: 18px;
-  border: 1px solid #E5D4C3;
-  padding: 10px;
-}
+
 /* ===== 選項按鈕配色，避免按下去整個反白 ===== */
 
 /* 先假設所有選項按鈕都有加這個 class：option-btn */
@@ -1958,13 +1930,19 @@ charCards.forEach(card => {
   });
 });
 
-/* 第一次點畫面啟動 BGM */
 btnStart.addEventListener("click", async () => {
-  // 這行是關鍵：在 iOS 上用「按下開始」這個 gesture 來解鎖音訊
-  try { await bgmSelect.play(); } catch(e) {}
+  // iOS 解鎖音訊：一定要在使用者按鈕當下做
+  try {
+    bgmSelect.muted = false;
+    bgmSelect.volume = 1;
+    await bgmSelect.play();
+  } catch(e) {}
 
   playSfx(sfxCheck);
-  stopSfx(bgmSelect);
+
+  // 不要在這裡 stop bgmSelect（至少先讓它播起來）
+  // stopSfx(bgmSelect);
+
   stopSelectAnim();
 
   nickname = nicknameInput.value.trim() || "今天的客人";
@@ -1976,19 +1954,6 @@ btnStart.addEventListener("click", async () => {
   startWalkInSequence();
 });
 
-
-btnStart.addEventListener("click", () => {
-  playSfx(sfxCheck);
-  stopSfx(bgmSelect);
-  stopSelectAnim(); // 進遊戲前把選角動畫停掉、回到第1張
-  nickname = nicknameInput.value.trim() || "今天的客人";
-  state.userName = nickname;
-  state.timeHour = new Date().getHours();
-
-  screenSelect.classList.remove("active");
-  screenGame.classList.add("active");
-  startWalkInSequence();
-});
 
 /* 走路動畫＋腳步 */
 let walkFramesTimer = null;
