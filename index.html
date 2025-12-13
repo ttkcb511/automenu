@@ -503,6 +503,11 @@ dialog-text{ max-width: none; }
   box-shadow: 0 4px 8px rgba(0,0,0,0.15);
 }
 
+/* 強制修正按鈕文字顏色 */
+.dialog-btn, .dialog-btn-primary {
+  color: #3b2515 !important; /* 強制深咖啡色 */
+}
+
 /* 卡片型選項（心情 / 目的 / 偏好） */
 .dialog-btn.mood-card-btn,
 .dialog-btn.goal-btn,
@@ -705,6 +710,8 @@ dialog-text{ max-width: none; }
   font-size: 11px;
   color: var(--kk-text-sub);
 }
+
+.result-loading { pointer-events: none; }
 
 /* 結果面板上方的 loading 遮罩 */
 .result-loading {
@@ -1674,29 +1681,6 @@ function redoToQuestions() {
   startQuestionFlow();
 }
 
-/* =========================
-   Buttons (FIX)
-========================= */
-btnRedoEl.addEventListener("click", (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  playSfx(sfxClick);
-  redoToQuestions();          // 重來：重新問答
-});
-
-btnConfirmEl.addEventListener("click", (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  playSfx(sfxClick);
-  closeResultPanel();         // 關閉：只關結果面板
-});
-
-btnExitEl.addEventListener("click", (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  playSfx(sfxClick);
-  exitToSelect();             // 結束：回選角
-});
 
 /* =========================
    AI state reset
@@ -1753,235 +1737,162 @@ const sfxLevelUp = document.getElementById("sfxLevelUp");
 const sfxNo = document.getElementById("sfxNo");
 const sfxThink = document.getElementById("sfxThink");
 
+
 /* =========================================================
-   AUDIO CORE (simple, no iPhone unlock, no overlap)
-   Drop-in replacement for:
-   - currentBgmEl / bgmBeforeThink / audioUnlocked
-   - unlockAudioOnce / playSfx / stopSfx / stopAllAudioHard
-   - gesture auto-start blocks
+   NEW AUDIO CORE (Stable & Clean)
    ========================================================= */
 
-// global-ish state
-let currentBgmEl = null;
-let bgmPausedForSfxEl = null;
+// 全域狀態：記錄目前正在播放的 BGM，方便切換
+let currentBgm = null;
+let savedBgmBeforeThink = null; // 用來暫存思考前的 BGM
 
-// ---- helpers ----
-function _safePause(el) { try { el.pause(); } catch {} }
-function _safeZero(el) { try { el.currentTime = 0; } catch {} }
+// 設定音量平衡 (0.0 ~ 1.0)
+const VOL_BGM = 0.5;  // BGM 小聲一點，當背景
+const VOL_SFX = 1.0;  // 音效大聲一點
 
-function stopAudioEl(el) {
-  if (!el) return;
-  _safePause(el);
-  _safeZero(el);
+// 1. 初始化所有 Audio 物件的音量
+function initAudioVolume() {
+  const audios = document.querySelectorAll("audio");
+  audios.forEach(a => {
+    // 判斷 ID 是否包含 bgm 來區分音量
+    if (a.id.includes("bgm")) a.volume = VOL_BGM;
+    else a.volume = VOL_SFX;
+  });
 }
+// 頁面載入後立刻設定音量
+window.addEventListener('DOMContentLoaded', initAudioVolume);
 
-function stopAllAudioHard(exceptEl = null) {
-  const audios = Array.from(document.querySelectorAll("audio"));
-  for (const a of audios) {
-    if (exceptEl && a === exceptEl) continue;
-    stopAudioEl(a);
+
+// 2. 播放 BGM (會自動切掉上一首)
+function playBgm(audioEl) {
+  if (!audioEl) return;
+  
+  // 如果這首已經在播，就什麼都不做
+  if (currentBgm === audioEl && !audioEl.paused) return;
+
+  // 如果有別首在播，先停掉
+  if (currentBgm && currentBgm !== audioEl) {
+    fadeOutOfBounds(currentBgm); // 淡出舊的 (選用，或是直接 stop)
+    currentBgm.pause();
+    currentBgm.currentTime = 0;
+  }
+
+  currentBgm = audioEl;
+  audioEl.volume = VOL_BGM; // 確保音量正確
+  audioEl.loop = true;      // 確保循環
+  
+  // 嘗試播放 (處理瀏覽器阻擋)
+  const p = audioEl.play();
+  if (p && typeof p.catch === "function") {
+    p.catch(e => console.log("BGM autoplay blocked (wait for interact)", e));
   }
 }
 
-// ---- public: keep same API name as your existing code ----
-async function unlockAudioOnce() {
-  // You said you don't care about iPhone gating; keep this as a no-op.
-  return;
-}
-
-/**
- * playSfx(audioEl, opts)
- * - If audioEl is bgmSelect/bgmInside => treat as BGM (single source)
- * - Otherwise => treat as SFX (optionally pause/resume BGM)
- *
- * opts:
- * - resumeBgm: default true
- * - pauseBgmDuringSfx: default true
- */
-function playSfx(audioEl, opts = {}) {
+// 3. 播放一次性音效 (點擊、確認、門鈴)
+function playSfx(audioEl) {
   if (!audioEl) return;
-
-  const isBgm = (audioEl === bgmSelect || audioEl === bgmInside);
-  const resumeBgm = (opts.resumeBgm !== false);
-  const pauseBgmDuringSfx = (opts.pauseBgmDuringSfx !== false);
-
-  // -------- BGM --------
-  if (isBgm) {
-    // Nuclear option: stop everything else so NO overlap can survive.
-    stopAllAudioHard(audioEl);
-
-    currentBgmEl = audioEl;
-    bgmPausedForSfxEl = null;
-
-    try {
-      audioEl.loop = true;
-      audioEl.muted = false;
-      audioEl.volume = 1;
-    } catch {}
-
-    const p = audioEl.play();
-    if (p && typeof p.catch === "function") p.catch(() => {});
+  
+  // 如果是循環音效 (走路、說話)，交給專用函式處理，這裡只處理「一次性」
+  if (audioEl.loop) {
+    playLoopSfx(audioEl);
     return;
   }
 
-  // -------- SFX --------
-  // If any loop SFX is started accidentally, it will keep playing.
-  // Your code already calls stopSfx(...) in places; this core won't fight that.
-  if (pauseBgmDuringSfx && currentBgmEl && !currentBgmEl.paused) {
-    bgmPausedForSfxEl = currentBgmEl;
-    _safePause(currentBgmEl);
-  } else {
-    bgmPausedForSfxEl = null;
-  }
-
-  _safeZero(audioEl);
+  // 為了讓快速點擊時音效不被卡掉，我們把時間歸零直接重播
+  audioEl.currentTime = 0;
+  audioEl.volume = VOL_SFX;
+  
   const p = audioEl.play();
   if (p && typeof p.catch === "function") p.catch(() => {});
-
-  // If SFX is loop, no "ended" will fire => don't attempt resume.
-  if (audioEl.loop) return;
-
-  if (resumeBgm && bgmPausedForSfxEl) {
-    const toResume = bgmPausedForSfxEl;
-
-    const resume = () => {
-      if (document.hidden) return;
-      const pp = toResume.play();
-      if (pp && typeof pp.catch === "function") pp.catch(() => {});
-    };
-
-    audioEl.addEventListener("ended", resume, { once: true });
-    setTimeout(resume, 900);
-  }
 }
 
+// 4. 播放循環音效 (走路、打字、思考)
+function playLoopSfx(audioEl) {
+  if (!audioEl) return;
+  // 如果已經在播，就不重置，避免聲音斷斷續續
+  if (!audioEl.paused && audioEl.currentTime > 0) return;
+
+  audioEl.currentTime = 0;
+  audioEl.loop = true;
+  audioEl.volume = VOL_SFX;
+  const p = audioEl.play();
+  if (p && typeof p.catch === "function") p.catch(() => {});
+}
+
+// 5. 停止特定音效
 function stopSfx(audioEl) {
   if (!audioEl) return;
-
-  const isBgm = (audioEl === bgmSelect || audioEl === bgmInside);
-
-  stopAudioEl(audioEl);
-
-  if (isBgm && currentBgmEl === audioEl) {
-    currentBgmEl = null;
-  }
-
-  // If we stopped the SFX manually, try resume paused BGM (only if BGM exists and is paused).
-  // (This is safe even if nothing is paused.)
-  if (!isBgm && bgmPausedForSfxEl) {
-    const toResume = bgmPausedForSfxEl;
-    bgmPausedForSfxEl = null;
-    if (!document.hidden && toResume && toResume.paused) {
-      const p = toResume.play();
-      if (p && typeof p.catch === "function") p.catch(() => {});
-    }
-  }
+  audioEl.pause();
+  audioEl.currentTime = 0;
 }
 
-// ---- hard stop on background ----
-if (!window.__audioHardStopInstalled) {
-  window.__audioHardStopInstalled = true;
-
-  const hardStop = () => {
-    stopAllAudioHard(null);
-    currentBgmEl = null;
-    bgmPausedForSfxEl = null;
-  };
-
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) hardStop();
-  });
-
-  window.addEventListener("pagehide", hardStop);
-}
-
-// ---- start select BGM immediately (best effort) ----
-if (!window.__bgmSelectAutoStarted) {
-  window.__bgmSelectAutoStarted = true;
-
-  // Use a tiny delay to avoid racing DOM init in some embeds.
-  setTimeout(() => {
-    // only start if still on select screen
-    const isSelectScreen = document.getElementById("screen-select")?.classList.contains("active");
-    if (isSelectScreen) playSfx(bgmSelect);
-  }, 50);
-}
-
-
-
-
-// ---------------------------
-// Auto-start select BGM on first real gesture (fix: 點人物/按鈕沒 BGM)
-// ---------------------------
-if (!window.__audioGestureInstalled) {
-  window.__audioGestureInstalled = true;
-
-  const tryStartBgm = async () => {
-    await unlockAudioOnce();
-
-    const isSelectScreen = document.getElementById("screen-select")?.classList.contains("active");
-    if (!isSelectScreen) return;
-
-    // 如果目前沒有任何 BGM 在播，就開選角 BGM
-    if (!currentBgmEl || currentBgmEl.paused) {
-      playSfx(bgmSelect);
-    }
-  };
-
-  window.addEventListener("pointerdown", tryStartBgm, { passive: true });
-  window.addEventListener("touchstart", tryStartBgm, { passive: true });
-}
-
-// ---------------------------
-// Thinking loading SFX (pause BGM while thinking, resume after)
-// ---------------------------
-let thinkingRef = 0;
-
+// 6. 特殊模式：思考模式 (暫停 BGM -> 播思考音 -> 恢復 BGM)
 function enterThinking() {
-  thinkingRef++;
-  resultLoadingEl.classList.remove("hidden");
+  // 顯示 Loading UI
+  if(resultLoadingEl) resultLoadingEl.classList.remove("hidden");
 
-  if (thinkingRef === 1) {
-    // thinking 開始：先把 BGM 暫停起來，避免 iOS 混音把 BGM 打掛
-    bgmBeforeThink = currentBgmEl;
-    if (bgmBeforeThink) {
-      try { bgmBeforeThink.pause(); } catch (_) {}
-    }
-
-    // 播 think（loop）
-    sfxThink.loop = true;
-    playSfx(sfxThink, { resumeBgm: false });
+  // 暫停 BGM
+  if (currentBgm && !currentBgm.paused) {
+    savedBgmBeforeThink = currentBgm;
+    currentBgm.pause();
   }
+
+  // 播放思考音效 (loop)
+  playLoopSfx(sfxThink);
 }
 
 function leaveThinking() {
-  thinkingRef = Math.max(0, thinkingRef - 1);
+  // 隱藏 Loading UI
+  if(resultLoadingEl) resultLoadingEl.classList.add("hidden");
 
-  if (thinkingRef === 0) {
-    resultLoadingEl.classList.add("hidden");
-    stopSfx(sfxThink);
+  // 停止思考音效
+  stopSfx(sfxThink);
 
-    // thinking 結束：把 BGM 播回來
-    const toResume = bgmBeforeThink;
-    bgmBeforeThink = null;
-    resumeBgmIfAllowed(toResume);
+  // 恢復 BGM
+  if (savedBgmBeforeThink) {
+    playBgm(savedBgmBeforeThink);
+    savedBgmBeforeThink = null;
   }
 }
 
+// 為了相容你原本代碼的 resetThinkingHard
 function resetThinkingHard() {
-  thinkingRef = 0;
-  resultLoadingEl.classList.add("hidden");
-  stopSfx(sfxThink);
-
-  const toResume = bgmBeforeThink;
-  bgmBeforeThink = null;
-  resumeBgmIfAllowed(toResume);
+  leaveThinking();
 }
 
 function setThinking(isThinking) {
   if (isThinking) enterThinking();
   else leaveThinking();
 }
+
+// 7. 解鎖音效 (首次點擊畫面時觸發)
+async function unlockAudioOnce() {
+  // 現代瀏覽器通常需要使用者互動後才能播放聲音
+  // 我們可以播放一個極短的靜音片段，或者只是簡單 return
+  // 你的架構中，點擊 Start 按鈕時就會觸發 BGM，所以這裡保持簡單即可
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (ctx.state === 'suspended') {
+    await ctx.resume();
+  }
+}
+
+// 輔助：簡單淡出 (避免切歌太生硬，非必要)
+function fadeOutOfBounds(audio) {
+  try {
+    audio.pause(); 
+    audio.currentTime = 0;
+  } catch(e){}
+}
+
+/* === 自動啟動 BGM 邏輯 ===
+   綁定在第一次點擊任意處，確保 BGM 能在手機上播放
+*/
+document.body.addEventListener('click', () => {
+   // 如果還在選角畫面，且 BGM 沒在播，就播放 bgmSelect
+   if (document.getElementById("screen-select").classList.contains("active")) {
+      if (!currentBgm) playBgm(bgmSelect);
+   }
+}, { once: true });
 
 /* =========================
    Weather + AI state
@@ -4374,7 +4285,98 @@ function askDessertPersonaStep() {
     );
   });
 }
+/* =========================================
+   FIXED: 最終穩定版 - 介面控制與按鈕邏輯 (使用 onclick 覆蓋法)
+   ========================================= */
 
+// 1. 確保 closeResultPanel 乾淨地關閉面板
+function closeResultPanel() {
+  resultRunId++; 
+  resultPanelEl.classList.remove("show");
+  pixelScreenEl.classList.remove("with-result");
+  
+  // 停止音效與動畫
+  resetThinkingHard();
+  resultCardsEl.textContent = "";
+  resultStoryEl.textContent = "";
+  abortPendingRequests();
+}
+
+// 2. 定義按鈕行為邏輯
+
+// 行為 A：重來 (關閉結果 -> 開啟對話框 -> 重新問答)
+function handleRedo() {
+  console.log("點擊重來"); // Debug 用
+  closeResultPanel();
+  
+  // 強制重置對話框狀態
+  dialogBoxEl.style.opacity = "1";
+  dialogBoxEl.style.pointerEvents = "auto";
+  dialogBoxEl.style.visibility = "visible";
+  dialogBoxEl.classList.add("visible");
+  
+  // 呼叫開始流程
+  startQuestionFlow();
+}
+
+// 行為 B：確認/送單 (關閉結果 -> 開啟對話框 -> 顯示感謝語 -> 回標題)
+function handleConfirm() {
+  console.log("點擊確認"); // Debug 用
+  closeResultPanel();
+  
+  // 強制重置對話框狀態
+  dialogBoxEl.style.opacity = "1";
+  dialogBoxEl.style.pointerEvents = "auto";
+  dialogBoxEl.style.visibility = "visible";
+  dialogBoxEl.classList.add("visible");
+  
+  // 顯示結尾文字
+  dialogChoicesEl.innerHTML = "";
+  dialogLabelEl.textContent = "AI貓店長";
+  
+  const endText = "太好了！這份餐點很適合你喔。\n那本喵先把菜單送去櫃台，你可以先找個位子坐一下！";
+  
+  typeText(endText, 32, () => {
+    dialogChoicesEl.innerHTML = "";
+    // 給一個最後的按鈕讓玩家回到標題，形成完美閉環
+    addDialogButton("好，謝謝貓店長 (回到標題)", () => exitToSelect());
+  });
+}
+
+// 行為 C：離開 (直接回標題)
+function handleExit() {
+  console.log("點擊離開"); // Debug 用
+  exitToSelect();
+}
+
+// 3. 綁定按鈕 (使用 onclick 確保唯一性，解決重複綁定問題)
+// 這裡不使用 addEventListener，避免因為多次執行造成累積
+if (btnRedoEl) {
+  btnRedoEl.onclick = function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    playSfx(sfxClick);
+    handleRedo();
+  };
+}
+
+if (btnConfirmEl) {
+  btnConfirmEl.onclick = function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    playSfx(sfxClick);
+    handleConfirm();
+  };
+}
+
+if (btnExitEl) {
+  btnExitEl.onclick = function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    playSfx(sfxClick);
+    handleExit();
+  };
+}
 
 </script>
 
