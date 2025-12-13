@@ -101,6 +101,9 @@ body {
   box-shadow: 0 14px 30px rgba(0,0,0,0.18);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
 
   font-size: 15px;
   line-height: 1.75;
@@ -122,6 +125,7 @@ body {
 .dialog-box.visible {
   opacity: 1;
   pointer-events: auto;
+  visibility: visible;
 }
 
 
@@ -1584,6 +1588,7 @@ function ensureResultPanelLayout() {
 /* =========================
    Abort controllers
 ========================= */
+let resultRunId = 0;
 let aiAbort = null;
 let weatherAbort = null;
 
@@ -1601,47 +1606,96 @@ function openResultPanel() {
   pixelScreenEl.classList.add("with-result");
 }
 
+/* =========================
+   Result panel helpers (FIX)
+========================= */
+function abortPendingRequests() {
+  if (weatherAbort) { weatherAbort.abort(); weatherAbort = null; }
+  if (aiAbort) { aiAbort.abort(); aiAbort = null; }
+}
+
+function openResultPanel() {
+  ensureResultPanelLayout();
+  resultPanelEl.classList.add("show");
+  pixelScreenEl.classList.add("with-result");
+}
+
 function closeResultPanel() {
+  resultRunId++; // 取消任何正在跑的 finishQuestionFlow UI 更新
   resultPanelEl.classList.remove("show");
   pixelScreenEl.classList.remove("with-result");
+
+  // 清空結果內容 + 中止請求
   resetThinkingHard();
   resultCardsEl.textContent = "";
   resultStoryEl.textContent = "";
   abortPendingRequests();
 }
 
+/** 回到選角（結束） */
 function exitToSelect() {
   closeResultPanel();
-
-  // 清掉出示模式樣式
   resultPanelEl.classList.remove("present");
 
-  // 回到選角畫面
-  screenGame.classList.remove("active");
-  screenSelect.classList.add("active");
+  // 關掉對話框，避免你看到「只剩對話框」
+  dialogBoxEl.classList.remove("visible");
+  dialogTextEl.textContent = "";
+  dialogChoicesEl.innerHTML = "";
 
-  // 回到選角一定停掉所有 BGM
+  // 停走路 / 停音效
+  try { stopWalkFrames?.(); } catch {}
   stopSfx(bgmInside);
   stopSfx(bgmSelect);
+
+  // 切回選角畫面
+  if (screenGame) screenGame.classList.remove("active");
+  if (screenSelect) screenSelect.classList.add("active");
+
+  // 重置選角 UI（可選，但建議）
+  if (btnStart) btnStart.disabled = true;
+  if (typeof stopSelectAnim === "function") stopSelectAnim();
+  if (charCards && charCards.forEach) charCards.forEach(c => c.classList.remove("active"));
+
+  // 角色回預設（可選）
+  currentRole = "boy";
+  if (heroEl) heroEl.className = "hero hero--boy-front";
 }
 
-/* Buttons */
+/** 重來：重新開始問答流程（不離開遊戲畫面） */
+function redoToQuestions() {
+  closeResultPanel();
+  resultPanelEl.classList.remove("present");
+
+  // 確保對話框可見
+  dialogBoxEl.classList.add("visible");
+  dialogChoicesEl.innerHTML = "";
+  dialogTextEl.textContent = "";
+
+  startQuestionFlow();
+}
+
+/* =========================
+   Buttons (FIX)
+========================= */
 btnRedoEl.addEventListener("click", (e) => {
+  e.preventDefault();
   e.stopPropagation();
   playSfx(sfxClick);
-  closeResultPanel();
-  startQuestionFlow();
+  redoToQuestions();          // 重來：重新問答
 });
 
-btnConfirmEl.addEventListener("click", () => {
-  playSfx(sfxCheck);
-  resultPanelEl.classList.add("present");
-  resultPanelEl.scrollTo({ top: 0, behavior: "smooth" });
-});
-
-btnExitEl.addEventListener("click", () => {
+btnConfirmEl.addEventListener("click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
   playSfx(sfxClick);
-  exitToSelect();
+  closeResultPanel();         // 關閉：只關結果面板
+});
+
+btnExitEl.addEventListener("click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  playSfx(sfxClick);
+  exitToSelect();             // 結束：回選角
 });
 
 /* =========================
@@ -1685,93 +1739,232 @@ const statusTagEl  = document.getElementById("statusTag");
 const statusTimeEl = document.getElementById("statusTime");
 const statusTempEl = document.getElementById("statusTemp");
 
-/* =========================
-   Audio elements
-========================= */
-const sfxStep    = document.getElementById("sfxStep");
-const sfxOpen    = document.getElementById("sfxOpen");
-const sfxBell    = document.getElementById("sfxBell");
-const sfxTalk    = document.getElementById("sfxTalk");
-
-const bgmSelect  = document.getElementById("bgmSelect");
-const bgmInside  = document.getElementById("bgmInside");
-
-const sfxSelect  = document.getElementById("sfxSelect");
-const sfxCheck   = document.getElementById("sfxCheck");
-const sfxClick   = document.getElementById("sfxClick");
+// Audio elements
+const sfxStep = document.getElementById("sfxStep");
+const sfxOpen = document.getElementById("sfxOpen");
+const sfxBell = document.getElementById("sfxBell");
+const sfxTalk = document.getElementById("sfxTalk");
+const bgmSelect = document.getElementById("bgmSelect");
+const bgmInside = document.getElementById("bgmInside");
+const sfxSelect = document.getElementById("sfxSelect");
+const sfxCheck = document.getElementById("sfxCheck");
+const sfxClick = document.getElementById("sfxClick");
 const sfxLevelUp = document.getElementById("sfxLevelUp");
-const sfxNo      = document.getElementById("sfxNo");
-const sfxThink   = document.getElementById("sfxThink");
+const sfxNo = document.getElementById("sfxNo");
+const sfxThink = document.getElementById("sfxThink");
 
-/* =========================
-   Audio helpers
-========================= */
-function playSfx(audioEl) {
+/* =========================================================
+   AUDIO CORE (simple, no iPhone unlock, no overlap)
+   Drop-in replacement for:
+   - currentBgmEl / bgmBeforeThink / audioUnlocked
+   - unlockAudioOnce / playSfx / stopSfx / stopAllAudioHard
+   - gesture auto-start blocks
+   ========================================================= */
+
+// global-ish state
+let currentBgmEl = null;
+let bgmPausedForSfxEl = null;
+
+// ---- helpers ----
+function _safePause(el) { try { el.pause(); } catch {} }
+function _safeZero(el) { try { el.currentTime = 0; } catch {} }
+
+function stopAudioEl(el) {
+  if (!el) return;
+  _safePause(el);
+  _safeZero(el);
+}
+
+function stopAllAudioHard(exceptEl = null) {
+  const audios = Array.from(document.querySelectorAll("audio"));
+  for (const a of audios) {
+    if (exceptEl && a === exceptEl) continue;
+    stopAudioEl(a);
+  }
+}
+
+// ---- public: keep same API name as your existing code ----
+async function unlockAudioOnce() {
+  // You said you don't care about iPhone gating; keep this as a no-op.
+  return;
+}
+
+/**
+ * playSfx(audioEl, opts)
+ * - If audioEl is bgmSelect/bgmInside => treat as BGM (single source)
+ * - Otherwise => treat as SFX (optionally pause/resume BGM)
+ *
+ * opts:
+ * - resumeBgm: default true
+ * - pauseBgmDuringSfx: default true
+ */
+function playSfx(audioEl, opts = {}) {
   if (!audioEl) return;
-  try {
-    audioEl.currentTime = 0;
+
+  const isBgm = (audioEl === bgmSelect || audioEl === bgmInside);
+  const resumeBgm = (opts.resumeBgm !== false);
+  const pauseBgmDuringSfx = (opts.pauseBgmDuringSfx !== false);
+
+  // -------- BGM --------
+  if (isBgm) {
+    // Nuclear option: stop everything else so NO overlap can survive.
+    stopAllAudioHard(audioEl);
+
+    currentBgmEl = audioEl;
+    bgmPausedForSfxEl = null;
+
+    try {
+      audioEl.loop = true;
+      audioEl.muted = false;
+      audioEl.volume = 1;
+    } catch {}
+
     const p = audioEl.play();
     if (p && typeof p.catch === "function") p.catch(() => {});
-  } catch (_) {}
+    return;
+  }
+
+  // -------- SFX --------
+  // If any loop SFX is started accidentally, it will keep playing.
+  // Your code already calls stopSfx(...) in places; this core won't fight that.
+  if (pauseBgmDuringSfx && currentBgmEl && !currentBgmEl.paused) {
+    bgmPausedForSfxEl = currentBgmEl;
+    _safePause(currentBgmEl);
+  } else {
+    bgmPausedForSfxEl = null;
+  }
+
+  _safeZero(audioEl);
+  const p = audioEl.play();
+  if (p && typeof p.catch === "function") p.catch(() => {});
+
+  // If SFX is loop, no "ended" will fire => don't attempt resume.
+  if (audioEl.loop) return;
+
+  if (resumeBgm && bgmPausedForSfxEl) {
+    const toResume = bgmPausedForSfxEl;
+
+    const resume = () => {
+      if (document.hidden) return;
+      const pp = toResume.play();
+      if (pp && typeof pp.catch === "function") pp.catch(() => {});
+    };
+
+    audioEl.addEventListener("ended", resume, { once: true });
+    setTimeout(resume, 900);
+  }
 }
 
 function stopSfx(audioEl) {
   if (!audioEl) return;
-  try {
-    audioEl.pause();
-    audioEl.currentTime = 0;
-  } catch (_) {}
+
+  const isBgm = (audioEl === bgmSelect || audioEl === bgmInside);
+
+  stopAudioEl(audioEl);
+
+  if (isBgm && currentBgmEl === audioEl) {
+    currentBgmEl = null;
+  }
+
+  // If we stopped the SFX manually, try resume paused BGM (only if BGM exists and is paused).
+  // (This is safe even if nothing is paused.)
+  if (!isBgm && bgmPausedForSfxEl) {
+    const toResume = bgmPausedForSfxEl;
+    bgmPausedForSfxEl = null;
+    if (!document.hidden && toResume && toResume.paused) {
+      const p = toResume.play();
+      if (p && typeof p.catch === "function") p.catch(() => {});
+    }
+  }
 }
 
-function stopAllAudioHard() {
-// BGM
-stopSfx(bgmSelect);
-stopSfx(bgmInside);
+// ---- hard stop on background ----
+if (!window.__audioHardStopInstalled) {
+  window.__audioHardStopInstalled = true;
 
-// 會 loop 的 SFX 也一起停掉（避免鎖屏還在講話/走路/思考）
-stopSfx(sfxTalk);
-stopSfx(sfxStep);
-stopSfx(sfxThink);
+  const hardStop = () => {
+    stopAllAudioHard(null);
+    currentBgmEl = null;
+    bgmPausedForSfxEl = null;
+  };
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) hardStop();
+  });
+
+  window.addEventListener("pagehide", hardStop);
 }
 
-function onAppHidden() {
-stopAllAudioHard();
-lastBgm = null;
+// ---- start select BGM immediately (best effort) ----
+if (!window.__bgmSelectAutoStarted) {
+  window.__bgmSelectAutoStarted = true;
+
+  // Use a tiny delay to avoid racing DOM init in some embeds.
+  setTimeout(() => {
+    // only start if still on select screen
+    const isSelectScreen = document.getElementById("screen-select")?.classList.contains("active");
+    if (isSelectScreen) playSfx(bgmSelect);
+  }, 50);
 }
 
-function onAppVisible() {
-// 需求：不要自動續播，所以這裡不做任何 play()
+
+
+
+// ---------------------------
+// Auto-start select BGM on first real gesture (fix: 點人物/按鈕沒 BGM)
+// ---------------------------
+if (!window.__audioGestureInstalled) {
+  window.__audioGestureInstalled = true;
+
+  const tryStartBgm = async () => {
+    await unlockAudioOnce();
+
+    const isSelectScreen = document.getElementById("screen-select")?.classList.contains("active");
+    if (!isSelectScreen) return;
+
+    // 如果目前沒有任何 BGM 在播，就開選角 BGM
+    if (!currentBgmEl || currentBgmEl.paused) {
+      playSfx(bgmSelect);
+    }
+  };
+
+  window.addEventListener("pointerdown", tryStartBgm, { passive: true });
+  window.addEventListener("touchstart", tryStartBgm, { passive: true });
 }
 
-document.addEventListener("visibilitychange", () => {
-if (document.hidden) onAppHidden();
-else onAppVisible();
-});
-
-// iOS Safari：切 app / 鎖螢幕有時 blur 比 visibilitychange 更可靠
-window.addEventListener("blur", onAppHidden, true);
-window.addEventListener("focus", onAppVisible, true);
-
-// pagehide 也補一層（返回上一頁/多工切換時常見）
-window.addEventListener("pagehide", onAppHidden);
-window.addEventListener("pageshow", onAppVisible);
-
-/* =========================
-   Thinking (loading) SFX
-========================= */
+// ---------------------------
+// Thinking loading SFX (pause BGM while thinking, resume after)
+// ---------------------------
 let thinkingRef = 0;
 
 function enterThinking() {
   thinkingRef++;
   resultLoadingEl.classList.remove("hidden");
-  if (thinkingRef === 1) playSfx(sfxThink);
+
+  if (thinkingRef === 1) {
+    // thinking 開始：先把 BGM 暫停起來，避免 iOS 混音把 BGM 打掛
+    bgmBeforeThink = currentBgmEl;
+    if (bgmBeforeThink) {
+      try { bgmBeforeThink.pause(); } catch (_) {}
+    }
+
+    // 播 think（loop）
+    sfxThink.loop = true;
+    playSfx(sfxThink, { resumeBgm: false });
+  }
 }
 
 function leaveThinking() {
   thinkingRef = Math.max(0, thinkingRef - 1);
+
   if (thinkingRef === 0) {
     resultLoadingEl.classList.add("hidden");
     stopSfx(sfxThink);
+
+    // thinking 結束：把 BGM 播回來
+    const toResume = bgmBeforeThink;
+    bgmBeforeThink = null;
+    resumeBgmIfAllowed(toResume);
   }
 }
 
@@ -1779,91 +1972,16 @@ function resetThinkingHard() {
   thinkingRef = 0;
   resultLoadingEl.classList.add("hidden");
   stopSfx(sfxThink);
+
+  const toResume = bgmBeforeThink;
+  bgmBeforeThink = null;
+  resumeBgmIfAllowed(toResume);
 }
 
 function setThinking(isThinking) {
   if (isThinking) enterThinking();
   else leaveThinking();
 }
-
-/* =========================
-   iOS audio unlock (只做一次)
-========================= */
-let audioUnlocked = false;
-let bgmSelectStarted = false;
-
-async function unlockAudioOnce() {
-  if (audioUnlocked) return;
-  audioUnlocked = true;
-
-  const audios = [
-    bgmSelect, bgmInside,
-    sfxOpen, sfxBell, sfxThink, sfxLevelUp,
-    sfxSelect, sfxCheck, sfxClick, sfxNo, sfxTalk, sfxStep
-  ].filter(Boolean);
-
-  for (const a of audios) {
-    try {
-      a.muted = true;
-      await a.play();
-      a.pause();
-      a.currentTime = 0;
-      a.muted = false;
-    } catch (_) {}
-  }
-}
-
-async function startSelectBgmOnce() {
-  if (bgmSelectStarted) return;
-  bgmSelectStarted = true;
-  try {
-    bgmSelect.muted = false;
-    bgmSelect.volume = 1;
-    await bgmSelect.play();
-  } catch (_) {
-    bgmSelectStarted = false;
-  }
-}
-
-/* =========================
-   Stop BGM on background/lock-screen
-   (預設：回來「不」自動續播)
-========================= */
-const AUTO_RESUME_BGM = false;
-let lastBgm = null; // 'select' | 'inside' | null
-
-function pauseAllBgm() {
-  try { if (bgmSelect && !bgmSelect.paused) bgmSelect.pause(); } catch (_) {}
-  try { if (bgmInside && !bgmInside.paused) bgmInside.pause(); } catch (_) {}
-}
-
-async function resumeLastBgmIfNeeded() {
-  if (!AUTO_RESUME_BGM) return;
-  try {
-    if (lastBgm === "select") await bgmSelect.play();
-    if (lastBgm === "inside") await bgmInside.play();
-  } catch (_) {}
-}
-
-function onAppHidden() {
-  if (bgmInside && !bgmInside.paused) lastBgm = "inside";
-  else if (bgmSelect && !bgmSelect.paused) lastBgm = "select";
-  else lastBgm = null;
-
-  pauseAllBgm();
-}
-
-function onAppVisible() {
-  resumeLastBgmIfNeeded();
-}
-
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) onAppHidden();
-  else onAppVisible();
-});
-
-window.addEventListener("pagehide", onAppHidden);
-window.addEventListener("pageshow", onAppVisible);
 
 /* =========================
    Weather + AI state
@@ -1975,28 +2093,38 @@ async function fetchWeather() {
 }
 
 /* =========================
+/* =========================
    Typewriter + choices
 ========================= */
 let typeTimer = null;
 
-function typeText(text, speed, onDone) {
-  if (typeTimer) { clearInterval(typeTimer); typeTimer = null; }
+function typeText(text, speed = 35, onDone) {
+  if (typeTimer) {
+    clearInterval(typeTimer);
+    typeTimer = null;
+  }
   stopSfx(sfxTalk);
 
+  const safeText = String(text ?? "");
   dialogTextEl.textContent = "";
   let i = 0;
+
+  if (safeText.length === 0) {
+    onDone && onDone();
+    return;
+  }
 
   playSfx(sfxTalk);
 
   typeTimer = setInterval(() => {
-    if (i >= text.length) {
+    if (i >= safeText.length) {
       clearInterval(typeTimer);
       typeTimer = null;
       stopSfx(sfxTalk);
       onDone && onDone();
       return;
     }
-    dialogTextEl.textContent += text[i++];
+    dialogTextEl.textContent += safeText[i++];
   }, speed);
 }
 
@@ -2006,7 +2134,7 @@ function addDialogButton(label, handler) {
   btn.textContent = label;
   btn.addEventListener("click", () => {
     playSfx(sfxClick);
-    handler();
+    if (typeof handler === "function") handler();
   });
   dialogChoicesEl.appendChild(btn);
 }
@@ -2015,7 +2143,7 @@ function addDialogButton(label, handler) {
    Game/character selection
 ========================= */
 let currentRole = "boy";
-let nickname = "今天的客人";
+let nickname = ""; // 由 resolveUserName / getUserName 統一處理
 
 const screenSelect  = document.getElementById("screen-select");
 const screenGame    = document.getElementById("screen-game");
@@ -2030,6 +2158,24 @@ const sceneInsideFg    = document.getElementById("sceneInsideFg");
 
 const heroEl     = document.getElementById("hero");
 const catClerkEl = document.getElementById("catClerk");
+
+/* --- Name helpers (修正名字消失的核心) --- */
+function getDefaultNameByRole(role) {
+  if (role === "cat") return "小貓";
+  if (role === "girl") return "小明";
+  return "小明";
+}
+
+function resolveUserName() {
+  const raw = (nicknameInput?.value || "").trim();
+  return raw || getDefaultNameByRole(currentRole);
+}
+
+function getUserName() {
+  const fromState = (state?.userName || "").trim();
+  const fromLocal = (nickname || "").trim();
+  return fromState || fromLocal || getDefaultNameByRole(currentRole);
+}
 
 /* 角色選擇：四格待機動畫 */
 const ROLE_FRAMES = {
@@ -2064,11 +2210,13 @@ function setRoleSprite(role, frameIndex) {
 function stopSelectAnim() {
   if (selectAnimTimer) clearInterval(selectAnimTimer);
   selectAnimTimer = null;
-  Object.keys(ROLE_FRAMES).forEach(role => setRoleSprite(role, 0));
+  Object.keys(ROLE_FRAMES).forEach((role) => setRoleSprite(role, 0));
 }
 
 function startSelectAnim(role) {
-  Object.keys(ROLE_FRAMES).forEach(r => { if (r !== role) setRoleSprite(r, 0); });
+  Object.keys(ROLE_FRAMES).forEach((r) => {
+    if (r !== role) setRoleSprite(r, 0);
+  });
   if (selectAnimTimer) clearInterval(selectAnimTimer);
 
   let idx = 0;
@@ -2078,34 +2226,41 @@ function startSelectAnim(role) {
   }, 140);
 }
 
-/* 選角色：只做「選擇」(不要在這裡綁 btnStart，也不要在這裡播 bgm) */
-charCards.forEach(card => {
+/* 選角色：只做「選擇」 */
+charCards.forEach((card) => {
   card.addEventListener("click", () => {
     const role = card.dataset.role;
     startSelectAnim(role);
     playSfx(sfxSelect);
 
-    charCards.forEach(c => c.classList.remove("active"));
+    charCards.forEach((c) => c.classList.remove("active"));
     card.classList.add("active");
 
     currentRole = role;
     heroEl.className = `hero hero--${currentRole}-front`;
+
+    // 允許「沒輸名字也能開始」：名字由 resolveUserName() 保底
     btnStart.disabled = false;
   });
 });
 
-/* 開始按鈕：iOS 解鎖 + 播選角 BGM（只一次） */
 btnStart.addEventListener("click", async () => {
   await unlockAudioOnce();
-  await startSelectBgmOnce();
-
   playSfx(sfxCheck);
   stopSelectAnim();
 
-  nickname = nicknameInput.value.trim() || "今天的客人";
-  state.userName = nickname;
-  state.timeHour = new Date().getHours();
+  // 永遠不會是空字串
+  const who = resolveUserName();
+  nickname = who;
+  state.userName = who;
 
+  // 回填到 input（讓 UI 一致）
+  if (nicknameInput) nicknameInput.value = who;
+
+  // 按開始就停掉初始 BGM（如果正在播）
+  stopSfx(bgmSelect);
+
+  state.timeHour = new Date().getHours();
   screenSelect.classList.remove("active");
   screenGame.classList.add("active");
 
@@ -2142,11 +2297,11 @@ function startWalkInSequence() {
   sceneOutsideFg.classList.add("active");
   sceneInsideBase.classList.remove("active");
   sceneInsideFg.classList.remove("active");
-  catClerkEl.classList.remove("visible");
 
+  catClerkEl.classList.remove("visible");
   dialogBoxEl.classList.remove("visible");
   dialogChoicesEl.innerHTML = "";
-  dialogTextEl.textContent  = "";
+  dialogTextEl.textContent = "";
 
   const startX = 40, startY = 380;
   const endX = 280, endY = 260;
@@ -2165,7 +2320,8 @@ function startWalkInSequence() {
 
   const walkTimerPos = setInterval(() => {
     step++;
-    x += dx; y += dy;
+    x += dx;
+    y += dy;
     heroEl.style.left = x + "px";
     heroEl.style.top  = y + "px";
 
@@ -2182,8 +2338,9 @@ function startWalkInSequence() {
 
       dialogBoxEl.classList.add("visible");
 
+      const who = getUserName();
       const introWalkText =
-        `Hi「${nickname}」，歡迎光臨 聊療貓bar！\n\n` +
+        `Hi「${who}」，歡迎光臨 聊療貓bar！\n\n` +
         `接下來就交給我們店裡最厲害的 AI 貓店長，` +
         `幫你翻翻菜單，推薦一份最適合你今天的餐點吧！`;
 
@@ -2203,12 +2360,12 @@ function enterShopIntro() {
   sceneInsideFg.classList.add("active");
 
   catClerkEl.className = "cat-clerk cat-clerk-idle visible";
-  catClerkEl.classList.add("visible");
 
-  playSfx(sfxBell);
-
-  stopSfx(bgmSelect);
+  // 進店切 BGM：playSfx(bgmInside) 會處理切換（硬停另一首 BGM）
   playSfx(bgmInside);
+
+  // 再播門鈴（不恢復舊 BGM）
+  playSfx(sfxBell, { resumeBgm: false });
 
   dialogBoxEl.classList.remove("visible");
   stopWalkFrames();
@@ -2230,7 +2387,8 @@ function enterShopIntro() {
 
   const walkInsideTimer = setInterval(() => {
     step++;
-    x += dx; y += dy;
+    x += dx;
+    y += dy;
     heroEl.style.left = x + "px";
     heroEl.style.top  = y + "px";
 
@@ -2256,14 +2414,15 @@ function showIntroDialogue() {
   dialogLabelEl.textContent = "AI貓店長";
   dialogChoicesEl.innerHTML = "";
 
+  const who = getUserName();
   const introText =
-    `喵～ 你好啊～${nickname} 既然你會來到這裡，代表你今天的選擇困難症又發作了是吧？\n\n` +
+    `喵～ 你好啊～${who} 既然你會來到這裡，代表你今天的選擇困難症又發作了是吧？\n\n` +
     `沒關係，就讓本喵來幫你找出最適合你的餐點吧，如何？`;
 
   typeText(introText, 35, () => {
     dialogChoicesEl.innerHTML = "";
-    addDialogButton("好啊，拜託你了！", () => startQuestionFlow());
-    addDialogButton("不要，我想自己看菜單", () => handleFakeRefuse());
+    addDialogButton("好啊，拜託你了！", startQuestionFlow);
+    addDialogButton("不要，我想自己看菜單", handleFakeRefuse);
   });
 }
 
@@ -2280,267 +2439,844 @@ function handleFakeRefuse() {
 
   typeText(text, 35, () => {
     dialogChoicesEl.innerHTML = "";
-    addDialogButton("好啦好啦，你開始問吧", () => startQuestionFlow());
+    addDialogButton("好啦好啦，你開始問吧", startQuestionFlow);
   });
 }
 
-
 /* ================== AI 貓店長：菜單資料＋打分邏輯 ================== */
 
-  const MENU_ITEMS = [
-      {id: "brown_sugar_bubble_milk_tea",name: "黑糖珍珠鮮奶茶",category: "鮮奶特調",mainType: "drink",caffeine: "normal",milk: true,ginger: false,sugarLevel: "normal",
-  canMakeUnsweetened: false,tempOptions: "both",bodySupport: ["nourish","warm"],moodTag: "relax",weatherTag: "cold", vegType: "none",effectTags: [],internalNote: "黑糖蜜珍珠搭配紅茶與鮮奶，甜度明顯、口感有嚼勁，適合需要被甜飲好好安撫的時候。"},
-      { id:"sakura_lychee_apple", name:"櫻戀清露", category:"冰糖花釀飲", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["light"], moodTag:"photo", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"櫻花蘋果荔枝風味搭蜜漬櫻花，顏值高、甜而不膩，適合拍照與想被溫柔對待的時候。" },
-      { id:"osmanthus_rock_sugar", name:"桂香冰露", category:"冰糖花釀飲", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["light"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"桂花釀與冰糖桂花調製，花香明顯但不膩，適合想放鬆又不想太重口味的時候。" },
-      { id:"yuzu_honey_soda", name:"韓香柚蜜氣泡飲", category:"氣泡飲", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"cold", bodySupport:["light"], moodTag:"relax", weatherTag:"hot", vegType:"none", effectTags:["解膩"], internalNote:"韓國柚子蜜搭配氣泡水，酸甜清爽，適合天氣熱或吃得比較油時解膩。" },
-      { id:"blue_orange_soda", name:"藍柑橙橘氣泡飲", category:"氣泡飲", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"cold", bodySupport:["light"], moodTag:"photo", weatherTag:"hot", vegType:"none", effectTags:[], internalNote:"藍柑橘糖漿＋柳橙糖漿加氣泡水，藍橙分層視覺強烈，適合拍照打卡。" },
-      { id:"apple_honey_soda", name:"蘋果蜜丁氣泡飲", category:"氣泡飲", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"cold", bodySupport:["light"], moodTag:"relax", weatherTag:"hot", vegType:"none", effectTags:[], internalNote:"韓國蘋果蜜丁＋蘋果糖漿氣泡飲，蘋果香濃甜度圓潤，適合不愛太酸的人。" },
-      { id:"hidden_soda", name:"隱藏限定特調", category:"氣泡飲", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"cold", bodySupport:["light"], moodTag:"surprise", weatherTag:"hot", vegType:"none", effectTags:[], internalNote:"不定期更換口味的氣泡特調，適合喜歡嚐鮮、接受驚喜的客人。" },
-      { id:"aroma_black_tea", name:"蜜韻蜜香紅茶", category:"純茶", mainType:"drink", caffeine:"normal", milk:false, ginger:false, sugarLevel:"unsweetened", canMakeUnsweetened:true, tempOptions:"both", bodySupport:["light"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"帶天然蜜香的紅茶，可做無糖，適合平常只喝無糖茶、又想要一點茶香的人。" },
-      { id:"peach_black_tea", name:"白桃蜜香紅茶", category:"純茶", mainType:"drink", caffeine:"normal", milk:false, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["light"], moodTag:"photo", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"紅茶加白桃果香，香氣明顯、少女感強，冰飲特別適合。" },
-      { id:"apple_black_tea", name:"蘋果蜜香紅茶", category:"純茶", mainType:"drink", caffeine:"normal", milk:false, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"蘋果香＋紅茶，味道溫暖柔和，適合秋冬或想安穩一點的時候。" },
-      { id:"earl_grey_tea", name:"單品伯爵茶", category:"純茶", mainType:"drink", caffeine:"normal", milk:false, ginger:false, sugarLevel:"unsweetened", canMakeUnsweetened:true, tempOptions:"both", bodySupport:["light"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"佛手柑香的大人系紅茶，可做無糖，適合搭甜點也適合單喝。" },
-      { id:"earl_grey_milk_tea", name:"伯爵鮮奶茶", category:"鮮奶特調", mainType:"drink", caffeine:"normal", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"伯爵茶與鮮奶結合，佛手柑香與奶香並存，是安全又有層次的奶茶。" },
-      { id:"choco_au_lait", name:"可可歐蕾", category:"鮮奶特調", mainType:"drink", caffeine:"none", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"cold", vegType:"none", effectTags:[], internalNote:"濃可可＋鮮奶，大人版巧克力牛奶，適合想被甜飲安撫的時候。" },
-      { id:"matcha_latte", name:"宇治抹茶拿鐵", category:"鮮奶特調", mainType:"drink", caffeine:"low", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"抹茶微苦回甘配鮮奶，整體溫柔平衡，適合安靜坐著的時候。" },
-      { id:"brown_sugar_milk", name:"烤黑糖鮮奶", category:"鮮奶特調", mainType:"drink", caffeine:"none", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish","warm"], moodTag:"relax", weatherTag:"cold", vegType:"none", effectTags:[], internalNote:"烤黑糖香氣厚實，甜度高、療癒感強，適合需要被甜一下的時候。" },
-      { id:"ginger_longan_milk", name:"黑糖薑汁鮮奶", category:"鮮奶特調", mainType:"drink", caffeine:"none", milk:true, ginger:true, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["warm","nourish"], moodTag:"relax", weatherTag:"cold", vegType:"none", effectTags:["暖身"], internalNote:"黑糖＋薑＋龍眼系暖身飲，適合身體想暖暖的、想養身的時候。" },
-      { id:"espresso", name:"義式濃縮", category:"咖啡", mainType:"drink", caffeine:"normal", milk:false, ginger:false, sugarLevel:"unsweetened", canMakeUnsweetened:true, tempOptions:"hot", bodySupport:[], moodTag:"wake", weatherTag:"mild", vegType:"none", effectTags:["強提神"], internalNote:"短杯濃縮咖啡，風味集中、咖啡因高，適合需要強力提神的時候。" },
-      { id:"americano", name:"經典美式", category:"咖啡", mainType:"drink", caffeine:"normal", milk:false, ginger:false, sugarLevel:"unsweetened", canMakeUnsweetened:true, tempOptions:"both", bodySupport:["light"], moodTag:"wake", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"清爽黑咖啡，適合工作、閱讀時慢慢喝。" },
-      { id:"cafe_latte", name:"經典拿鐵", category:"咖啡", mainType:"drink", caffeine:"normal", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"咖啡＋牛奶比例平衡，苦味被奶香包起來，是最安全的咖啡選擇。" },
-      { id:"cappuccino", name:"卡布奇諾", category:"咖啡", mainType:"drink", caffeine:"normal", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"奶泡較多、口感柔軟綿密，適合喜歡奶泡的人。" },
-      { id:"flavored_latte", name:"風味拿鐵（榛果／香草／焦糖／玫瑰／白桃）", category:"咖啡", mainType:"drink", caffeine:"normal", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:[], internalNote:"以拿鐵為基底加風味糖漿，香氣與甜度更明顯，適合想喝「有主題味道」的咖啡。" },
-      { id:"cafe_mocha", name:"義式摩卡", category:"咖啡", mainType:"drink", caffeine:"normal", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"cold", bodySupport:["nourish"], moodTag:"relax", weatherTag:"cold", vegType:"none", effectTags:[], internalNote:"咖啡加可可的甜系咖啡，適合喜歡巧克力又想要咖啡香的人。" },
-      { id:"caramel_macchiato", name:"焦糖瑪奇朵", category:"咖啡", mainType:"drink", caffeine:"normal", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"cold", bodySupport:["nourish"], moodTag:"relax", weatherTag:"hot", vegType:"none", effectTags:[], internalNote:"以奶香與焦糖為主的甜系咖啡，入口先甜後帶咖啡香。" },
-      { id:"espresso_romano", name:"香檸氣泡西西里", category:"咖啡", mainType:"drink", caffeine:"normal", milk:false, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"cold", bodySupport:["light"], moodTag:"wake", weatherTag:"hot", vegType:"none", effectTags:["提神"], internalNote:"檸檬＋氣泡＋濃縮咖啡，酸度與咖啡因都很有存在感，醒腦效果強。" },
-      { id:"chamomile_lavender", name:"舒緩沉靜甘菊茶", category:"花草茶", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"unsweetened", canMakeUnsweetened:true, tempOptions:"hot_preferred", bodySupport:["nourish","warm"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:["舒緩情緒","放鬆","助眠"], internalNote:"洋甘菊＋薰衣草幫助舒緩情緒、放鬆與入睡，適合作為晚上的收尾茶。" },
-      { id:"peppermint_tea", name:"清爽暢快薄荷茶", category:"花草茶", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"unsweetened", canMakeUnsweetened:true, tempOptions:"hot_preferred", bodySupport:["light"], moodTag:"wake", weatherTag:"hot", vegType:"none", effectTags:["提神","醒腦","思緒清楚"], internalNote:"薄荷＋甘草＋檸檬，清涼感明顯，可幫忙提神、讓思緒更清楚。" },
-      { id:"rose_herbal", name:"纖細仙女玫瑰茶", category:"花草茶", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"unsweetened", canMakeUnsweetened:true, tempOptions:"hot_preferred", bodySupport:["light","nourish"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:["促進消化"], internalNote:"洛神＋玫瑰，酸甜中帶花香，幫助促進消化，適合作為餐後溫柔收尾。" },
-      { id:"strawberry_herbal", name:"甜心養顏草莓茶", category:"花草茶", mainType:"drink", caffeine:"none", milk:false, ginger:false, sugarLevel:"unsweetened", canMakeUnsweetened:true, tempOptions:"hot_preferred", bodySupport:["light","nourish"], moodTag:"relax", weatherTag:"mild", vegType:"none", effectTags:["美容保養"], internalNote:"莓果＋洛神組合，帶酸甜與花果香，常被女生當成日常美容調理的小幫手。" },
-      { id:"ginger_red_date_tea", name:"黑糖桂圓紅棗薑茶", category:"花草茶", mainType:"drink", caffeine:"none", milk:false, ginger:true, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"hot_preferred", bodySupport:["warm","nourish"], moodTag:"relax", weatherTag:"cold", vegType:"none", effectTags:["暖身"], internalNote:"黑糖＋老薑＋龍眼乾＋紅棗，超級暖身，適合身體想暖暖、想被好好養的時候（孕婦避免）。" },
-      {
-  id:"toast_margherita",
-  name:"義式瑪格麗特熱壓吐司",
-  category:"熱壓吐司",
-  mainType:"meal",
-  caffeine:"none",
-  milk:true,
-  ginger:false,
-  sugarLevel:"unsweetened",
-  canMakeUnsweetened:true,
-  tempOptions:"hot",
-  bodySupport:["light"],
-  moodTag:"relax",
-  weatherTag:"mild",
-  vegType:"ovo_lacto",
-  effectTags:[],
-  internalNote:"羅勒、烤厚番茄與起司的經典組合，適合想吃清爽一點或蛋奶素客人。",
+const MENU_ITEMS = [
+  {
+    id: "brown_sugar_bubble_milk_tea",
+    name: "黑糖珍珠鮮奶茶",
+    category: "鮮奶特調",
+    mainType: "drink",
+    caffeine: "normal",
+    milk: true,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "both",
+    bodySupport: ["nourish", "warm"],
+    moodTag: "relax",
+    weatherTag: "cold",
+    vegType: "none",
+    effectTags: [],
+    internalNote:
+      "黑糖蜜珍珠搭配紅茶與鮮奶，甜度明顯、口感有嚼勁，適合需要被甜飲好好安撫的時候。"
+  },
+  {
+    id: "sakura_lychee_apple",
+    name: "櫻戀清露",
+    category: "冰糖花釀飲",
+    mainType: "drink",
+    caffeine: "none",
+    milk: false,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "both",
+    bodySupport: ["light"],
+    moodTag: "photo",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: [],
+    internalNote:
+      "櫻花蘋果荔枝風味搭蜜漬櫻花，顏值高、甜而不膩，適合拍照與想被溫柔對待的時候。"
+  },
+  {
+    id: "osmanthus_rock_sugar",
+    name: "桂香冰露",
+    category: "冰糖花釀飲",
+    mainType: "drink",
+    caffeine: "none",
+    milk: false,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "both",
+    bodySupport: ["light"],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: [],
+    internalNote:
+      "桂花釀與冰糖桂花調製，花香明顯但不膩，適合想放鬆又不想太重口味的時候。"
+  },
+  {
+    id: "yuzu_honey_soda",
+    name: "韓香柚蜜氣泡飲",
+    category: "氣泡飲",
+    mainType: "drink",
+    caffeine: "none",
+    milk: false,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "cold",
+    bodySupport: ["light"],
+    moodTag: "relax",
+    weatherTag: "hot",
+    vegType: "none",
+    effectTags: ["解膩"],
+    internalNote:
+      "韓國柚子蜜搭配氣泡水，酸甜清爽，適合天氣熱或吃得比較油時解膩。"
+  },
+  {
+    id: "blue_orange_soda",
+    name: "藍柑橙橘氣泡飲",
+    category: "氣泡飲",
+    mainType: "drink",
+    caffeine: "none",
+    milk: false,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "cold",
+    bodySupport: ["light"],
+    moodTag: "photo",
+    weatherTag: "hot",
+    vegType: "none",
+    effectTags: [],
+    internalNote:
+      "藍柑橘糖漿＋柳橙糖漿加氣泡水，藍橙分層視覺強烈，適合拍照打卡。"
+  },
+  {
+    id: "apple_honey_soda",
+    name: "蘋果蜜丁氣泡飲",
+    category: "氣泡飲",
+    mainType: "drink",
+    caffeine: "none",
+    milk: false,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "cold",
+    bodySupport: ["light"],
+    moodTag: "relax",
+    weatherTag: "hot",
+    vegType: "none",
+    effectTags: [],
+    internalNote:
+      "韓國蘋果蜜丁＋蘋果糖漿氣泡飲，蘋果香濃甜度圓潤，適合不愛太酸的人。"
+  },
+  {
+    id: "hidden_soda",
+    name: "隱藏限定特調",
+    category: "氣泡飲",
+    mainType: "drink",
+    caffeine: "none",
+    milk: false,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "cold",
+    bodySupport: ["light"],
+    moodTag: "surprise",
+    weatherTag: "hot",
+    vegType: "none",
+    effectTags: [],
+    internalNote:
+      "不定期更換口味的氣泡特調，適合喜歡嚐鮮、接受驚喜的客人。"
+  },
+  {
+    id: "aroma_black_tea",
+    name: "蜜韻蜜香紅茶",
+    category: "純茶",
+    mainType: "drink",
+    caffeine: "normal",
+    milk: false,
+    ginger: false,
+    sugarLevel: "unsweetened",
+    canMakeUnsweetened: true,
+    tempOptions: "both",
+    bodySupport: ["light"],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: [],
+    internalNote:
+      "帶天然蜜香的紅茶，可做無糖，適合平常只喝無糖茶、又想要一點茶香的人。"
+  },
+  {
+    id: "peach_black_tea",
+    name: "白桃蜜香紅茶",
+    category: "純茶",
+    mainType: "drink",
+    caffeine: "normal",
+    milk: false,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "both",
+    bodySupport: ["light"],
+    moodTag: "photo",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "紅茶加白桃果香，香氣明顯、少女感強，冰飲特別適合。"
+  },
+  {
+    id: "apple_black_tea",
+    name: "蘋果蜜香紅茶",
+    category: "純茶",
+    mainType: "drink",
+    caffeine: "normal",
+    milk: false,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "both",
+    bodySupport: ["nourish"],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "蘋果香＋紅茶，味道溫暖柔和，適合秋冬或想安穩一點的時候。"
+  },
+  {
+    id: "earl_grey_tea",
+    name: "單品伯爵茶",
+    category: "純茶",
+    mainType: "drink",
+    caffeine: "normal",
+    milk: false,
+    ginger: false,
+    sugarLevel: "unsweetened",
+    canMakeUnsweetened: true,
+    tempOptions: "both",
+    bodySupport: ["light"],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "佛手柑香的大人系紅茶，可做無糖，適合搭甜點也適合單喝。"
+  },
+  {
+    id: "earl_grey_milk_tea",
+    name: "伯爵鮮奶茶",
+    category: "鮮奶特調",
+    mainType: "drink",
+    caffeine: "normal",
+    milk: true,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "both",
+    bodySupport: ["nourish"],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "伯爵茶與鮮奶結合，佛手柑香與奶香並存，是安全又有層次的奶茶。"
+  },
+  {
+    id: "choco_au_lait",
+    name: "可可歐蕾",
+    category: "鮮奶特調",
+    mainType: "drink",
+    caffeine: "none",
+    milk: true,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "both",
+    bodySupport: ["nourish"],
+    moodTag: "relax",
+    weatherTag: "cold",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "濃可可＋鮮奶，大人版巧克力牛奶，適合想被甜飲安撫的時候。"
+  },
+  {
+    id: "matcha_latte",
+    name: "宇治抹茶拿鐵",
+    category: "鮮奶特調",
+    mainType: "drink",
+    caffeine: "low",
+    milk: true,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "both",
+    bodySupport: ["nourish"],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "抹茶微苦回甘配鮮奶，整體溫柔平衡，適合安靜坐著的時候。"
+  },
+  {
+    id: "brown_sugar_milk",
+    name: "烤黑糖鮮奶",
+    category: "鮮奶特調",
+    mainType: "drink",
+    caffeine: "none",
+    milk: true,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "both",
+    bodySupport: ["nourish", "warm"],
+    moodTag: "relax",
+    weatherTag: "cold",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "烤黑糖香氣厚實，甜度高、療癒感強，適合需要被甜一下的時候。"
+  },
+  {
+    id: "ginger_longan_milk",
+    name: "黑糖薑汁鮮奶",
+    category: "鮮奶特調",
+    mainType: "drink",
+    caffeine: "none",
+    milk: true,
+    ginger: true,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "both",
+    bodySupport: ["warm", "nourish"],
+    moodTag: "relax",
+    weatherTag: "cold",
+    vegType: "none",
+    effectTags: ["暖身"],
+    internalNote: "黑糖＋薑＋龍眼系暖身飲，適合身體想暖暖的、想養身的時候。"
+  },
+  {
+    id: "espresso",
+    name: "義式濃縮",
+    category: "咖啡",
+    mainType: "drink",
+    caffeine: "normal",
+    milk: false,
+    ginger: false,
+    sugarLevel: "unsweetened",
+    canMakeUnsweetened: true,
+    tempOptions: "hot",
+    bodySupport: [],
+    moodTag: "wake",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: ["強提神"],
+    internalNote: "短杯濃縮咖啡，風味集中、咖啡因高，適合需要強力提神的時候。"
+  },
+  {
+    id: "americano",
+    name: "經典美式",
+    category: "咖啡",
+    mainType: "drink",
+    caffeine: "normal",
+    milk: false,
+    ginger: false,
+    sugarLevel: "unsweetened",
+    canMakeUnsweetened: true,
+    tempOptions: "both",
+    bodySupport: ["light"],
+    moodTag: "wake",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "清爽黑咖啡，適合工作、閱讀時慢慢喝。"
+  },
+  {
+    id: "cafe_latte",
+    name: "經典拿鐵",
+    category: "咖啡",
+    mainType: "drink",
+    caffeine: "normal",
+    milk: true,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "both",
+    bodySupport: ["nourish"],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "咖啡＋牛奶比例平衡，苦味被奶香包起來，是最安全的咖啡選擇。"
+  },
+  {
+    id: "cappuccino",
+    name: "卡布奇諾",
+    category: "咖啡",
+    mainType: "drink",
+    caffeine: "normal",
+    milk: true,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "both",
+    bodySupport: ["nourish"],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "奶泡較多、口感柔軟綿密，適合喜歡奶泡的人。"
+  },
+  {
+    id: "flavored_latte",
+    name: "風味拿鐵（榛果／香草／焦糖／玫瑰／白桃）",
+    category: "咖啡",
+    mainType: "drink",
+    caffeine: "normal",
+    milk: true,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "both",
+    bodySupport: ["nourish"],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "以拿鐵為基底加風味糖漿，香氣與甜度更明顯，適合想喝「有主題味道」的咖啡。"
+  },
+  {
+    id: "cafe_mocha",
+    name: "義式摩卡",
+    category: "咖啡",
+    mainType: "drink",
+    caffeine: "normal",
+    milk: true,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "cold",
+    bodySupport: ["nourish"],
+    moodTag: "relax",
+    weatherTag: "cold",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "咖啡加可可的甜系咖啡，適合喜歡巧克力又想要咖啡香的人。"
+  },
+  {
+    id: "caramel_macchiato",
+    name: "焦糖瑪奇朵",
+    category: "咖啡",
+    mainType: "drink",
+    caffeine: "normal",
+    milk: true,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "cold",
+    bodySupport: ["nourish"],
+    moodTag: "relax",
+    weatherTag: "hot",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "以奶香與焦糖為主的甜系咖啡，入口先甜後帶咖啡香。"
+  },
+  {
+    id: "espresso_romano",
+    name: "香檸氣泡西西里",
+    category: "咖啡",
+    mainType: "drink",
+    caffeine: "normal",
+    milk: false,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "cold",
+    bodySupport: ["light"],
+    moodTag: "wake",
+    weatherTag: "hot",
+    vegType: "none",
+    effectTags: ["提神"],
+    internalNote: "檸檬＋氣泡＋濃縮咖啡，酸度與咖啡因都很有存在感，醒腦效果強。"
+  },
+  {
+    id: "chamomile_lavender",
+    name: "舒緩沉靜甘菊茶",
+    category: "花草茶",
+    mainType: "drink",
+    caffeine: "none",
+    milk: false,
+    ginger: false,
+    sugarLevel: "unsweetened",
+    canMakeUnsweetened: true,
+    tempOptions: "hot_preferred",
+    bodySupport: ["nourish", "warm"],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: ["舒緩情緒", "放鬆", "助眠"],
+    internalNote: "洋甘菊＋薰衣草幫助舒緩情緒、放鬆與入睡，適合作為晚上的收尾茶。"
+  },
+  {
+    id: "peppermint_tea",
+    name: "清爽暢快薄荷茶",
+    category: "花草茶",
+    mainType: "drink",
+    caffeine: "none",
+    milk: false,
+    ginger: false,
+    sugarLevel: "unsweetened",
+    canMakeUnsweetened: true,
+    tempOptions: "hot_preferred",
+    bodySupport: ["light"],
+    moodTag: "wake",
+    weatherTag: "hot",
+    vegType: "none",
+    effectTags: ["提神", "醒腦", "思緒清楚"],
+    internalNote: "薄荷＋甘草＋檸檬，清涼感明顯，可幫忙提神、讓思緒更清楚。"
+  },
+  {
+    id: "rose_herbal",
+    name: "纖細仙女玫瑰茶",
+    category: "花草茶",
+    mainType: "drink",
+    caffeine: "none",
+    milk: false,
+    ginger: false,
+    sugarLevel: "unsweetened",
+    canMakeUnsweetened: true,
+    tempOptions: "hot_preferred",
+    bodySupport: ["light", "nourish"],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: ["促進消化"],
+    internalNote: "洛神＋玫瑰，酸甜中帶花香，幫助促進消化，適合作為餐後溫柔收尾。"
+  },
+  {
+    id: "strawberry_herbal",
+    name: "甜心養顏草莓茶",
+    category: "花草茶",
+    mainType: "drink",
+    caffeine: "none",
+    milk: false,
+    ginger: false,
+    sugarLevel: "unsweetened",
+    canMakeUnsweetened: true,
+    tempOptions: "hot_preferred",
+    bodySupport: ["light", "nourish"],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: ["美容保養"],
+    internalNote: "莓果＋洛神組合，帶酸甜與花果香，常被女生當成日常美容調理的小幫手。"
+  },
+  {
+    id: "ginger_red_date_tea",
+    name: "黑糖桂圓紅棗薑茶",
+    category: "花草茶",
+    mainType: "drink",
+    caffeine: "none",
+    milk: false,
+    ginger: true,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "hot_preferred",
+    bodySupport: ["warm", "nourish"],
+    moodTag: "relax",
+    weatherTag: "cold",
+    vegType: "none",
+    effectTags: ["暖身"],
+    internalNote: "黑糖＋老薑＋龍眼乾＋紅棗，超級暖身，適合身體想暖暖、想被好好養的時候（孕婦避免）。"
+  },
 
-  mealSize:      "light",   // 輕食
-  mealFlavorTag: "fresh",   // 清爽
-  mealBase:      "toast"    // 吐司類
-},
-{
-  id:"toast_roast_chicken",
-  name:"地中海烤雞熱壓吐司",
-  category:"熱壓吐司",
-  mainType:"meal",
-  caffeine:"none",
-  milk:true,
-  ginger:false,
-  sugarLevel:"unsweetened",
-  canMakeUnsweetened:true,
-  tempOptions:"hot",
-  bodySupport:["light","nourish"],
-  moodTag:"relax",
-  weatherTag:"mild",
-  vegType:"none",
-  effectTags:[],
-  internalNote:"烤雞胸、彩椒與檸檬起司，油脂感低、蛋白質足，適合作為輕正餐。",
+  {
+    id: "toast_margherita",
+    name: "義式瑪格麗特熱壓吐司",
+    category: "熱壓吐司",
+    mainType: "meal",
+    caffeine: "none",
+    milk: true,
+    ginger: false,
+    sugarLevel: "unsweetened",
+    canMakeUnsweetened: true,
+    tempOptions: "hot",
+    bodySupport: ["light"],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "ovo_lacto",
+    effectTags: [],
+    internalNote: "羅勒、烤厚番茄與起司的經典組合，適合想吃清爽一點或蛋奶素客人。",
+    mealSize: "light",
+    mealFlavorTag: "fresh",
+    mealBase: "toast"
+  },
+  {
+    id: "toast_roast_chicken",
+    name: "地中海烤雞熱壓吐司",
+    category: "熱壓吐司",
+    mainType: "meal",
+    caffeine: "none",
+    milk: true,
+    ginger: false,
+    sugarLevel: "unsweetened",
+    canMakeUnsweetened: true,
+    tempOptions: "hot",
+    bodySupport: ["light", "nourish"],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "烤雞胸、彩椒與檸檬起司，油脂感低、蛋白質足，適合作為輕正餐。",
+    mealSize: "light",
+    mealFlavorTag: "fresh",
+    mealBase: "toast"
+  },
+  {
+    id: "toast_spicy_beef",
+    name: "費城辣烤牛肉熱壓吐司",
+    category: "熱壓吐司",
+    mainType: "meal",
+    caffeine: "none",
+    milk: true,
+    ginger: false,
+    sugarLevel: "unsweetened",
+    canMakeUnsweetened: true,
+    tempOptions: "hot",
+    bodySupport: [],
+    moodTag: "wake",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "特製慢烤牛肉＋起司，味道較重、帶一點辣，適合壓力大或很餓時。",
+    mealSize: "light",
+    mealFlavorTag: "rich",
+    mealBase: "toast"
+  },
 
-  mealSize:      "light",
-  mealFlavorTag: "fresh",
-  mealBase:      "toast"
-},
-{
-  id:"toast_spicy_beef",
-  name:"費城辣烤牛肉熱壓吐司",
-  category:"熱壓吐司",
-  mainType:"meal",
-  caffeine:"none",
-  milk:true,
-  ginger:false,
-  sugarLevel:"unsweetened",
-  canMakeUnsweetened:true,
-  tempOptions:"hot",
-  bodySupport:[],
-  moodTag:"wake",
-  weatherTag:"mild",
-  vegType:"none",
-  effectTags:[],
-  internalNote:"特製慢烤牛肉＋起司，味道較重、帶一點辣，適合壓力大或很餓時。",
+  {
+    id: "pizza_smoked_chicken",
+    name: "煙燻雞肉披薩",
+    category: "披薩",
+    mainType: "meal",
+    caffeine: "none",
+    milk: true,
+    ginger: false,
+    sugarLevel: "unsweetened",
+    canMakeUnsweetened: true,
+    tempOptions: "hot",
+    bodySupport: [],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "雞肉、洋蔥、紅椒、芹菜，帶煙燻香氣但不會過鹹，肉量與蔬菜平衡。",
+    mealSize: "full",
+    mealFlavorTag: "rich",
+    mealBase: "pizza"
+  },
+  {
+    id: "pizza_grilled_beef",
+    name: "香烤牛肉披薩",
+    category: "披薩",
+    mainType: "meal",
+    caffeine: "none",
+    milk: true,
+    ginger: false,
+    sugarLevel: "unsweetened",
+    canMakeUnsweetened: true,
+    tempOptions: "hot",
+    bodySupport: [],
+    moodTag: "wake",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "牛肉＋起司，紅肉與乳酪風味厚實，適合需要飽足感的人。",
+    mealSize: "full",
+    mealFlavorTag: "rich",
+    mealBase: "pizza"
+  },
+  {
+    id: "pizza_seafood_combo",
+    name: "海鮮總匯披薩",
+    category: "披薩",
+    mainType: "meal",
+    caffeine: "none",
+    milk: true,
+    ginger: false,
+    sugarLevel: "unsweetened",
+    canMakeUnsweetened: true,
+    tempOptions: "hot",
+    bodySupport: ["light"],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "花枝、蝦仁搭配蔬菜，海鮮感明顯、整體偏清爽。",
+    mealSize: "full",
+    mealFlavorTag: "fresh",
+    mealBase: "pizza"
+  },
 
-  mealSize:      "light",
-  mealFlavorTag: "rich",   // 濃郁
-  mealBase:      "toast"
-},
+  {
+    id: "pasta_tomato",
+    name: "蕃茄紅醬義大利麵",
+    category: "義大利麵",
+    mainType: "meal",
+    caffeine: "none",
+    milk: false,
+    ginger: false,
+    sugarLevel: "unsweetened",
+    canMakeUnsweetened: true,
+    tempOptions: "hot",
+    bodySupport: ["light"],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "蕃茄紅醬＋肉與蔬菜，酸甜開胃、飽足感高但不會太膩。",
+    mealSize: "full",
+    mealFlavorTag: "fresh",
+    mealBase: "pasta"
+  },
+  {
+    id: "pasta_white_sauce",
+    name: "培根白醬義大利麵",
+    category: "義大利麵",
+    mainType: "meal",
+    caffeine: "none",
+    milk: true,
+    ginger: false,
+    sugarLevel: "unsweetened",
+    canMakeUnsweetened: true,
+    tempOptions: "hot",
+    bodySupport: ["nourish"],
+    moodTag: "relax",
+    weatherTag: "cold",
+    vegType: "none",
+    effectTags: [],
+    internalNote: "奶油白醬＋豬培根與蔬菜，奶味濃郁、偏罪惡感，適合想吃重一點的時候。",
+    mealSize: "full",
+    mealFlavorTag: "rich",
+    mealBase: "pasta"
+  },
 
-{
-  id:"pizza_smoked_chicken",
-  name:"煙燻雞肉披薩",
-  category:"披薩",
-  mainType:"meal",
-  caffeine:"none",
-  milk:true,
-  ginger:false,
-  sugarLevel:"unsweetened",
-  canMakeUnsweetened:true,
-  tempOptions:"hot",
-  bodySupport:[],
-  moodTag:"relax",
-  weatherTag:"mild",
-  vegType:"none",
-  effectTags:[],
-  internalNote:"雞肉、洋蔥、紅椒、芹菜，帶煙燻香氣但不會過鹹，肉量與蔬菜平衡。",
-
-  mealSize:      "full",   // 飽食
-  mealFlavorTag: "rich",
-  mealBase:      "pizza"
-},
-{
-  id:"pizza_grilled_beef",
-  name:"香烤牛肉披薩",
-  category:"披薩",
-  mainType:"meal",
-  caffeine:"none",
-  milk:true,
-  ginger:false,
-  sugarLevel:"unsweetened",
-  canMakeUnsweetened:true,
-  tempOptions:"hot",
-  bodySupport:[],
-  moodTag:"wake",
-  weatherTag:"mild",
-  vegType:"none",
-  effectTags:[],
-  internalNote:"牛肉＋起司，紅肉與乳酪風味厚實，適合需要飽足感的人。",
-
-  mealSize:      "full",
-  mealFlavorTag: "rich",
-  mealBase:      "pizza"
-},
-{
-  id:"pizza_seafood_combo",
-  name:"海鮮總匯披薩",
-  category:"披薩",
-  mainType:"meal",
-  caffeine:"none",
-  milk:true,
-  ginger:false,
-  sugarLevel:"unsweetened",
-  canMakeUnsweetened:true,
-  tempOptions:"hot",
-  bodySupport:["light"],
-  moodTag:"relax",
-  weatherTag:"mild",
-  vegType:"none",
-  effectTags:[],
-  internalNote:"花枝、蝦仁搭配蔬菜，海鮮感明顯、整體偏清爽。",
-
-  mealSize:      "full",
-  mealFlavorTag: "fresh",
-  mealBase:      "pizza"
-},
-
-{
-  id:"pasta_tomato",
-  name:"蕃茄紅醬義大利麵",
-  category:"義大利麵",
-  mainType:"meal",
-  caffeine:"none",
-  milk:false,
-  ginger:false,
-  sugarLevel:"unsweetened",
-  canMakeUnsweetened:true,
-  tempOptions:"hot",
-  bodySupport:["light"],
-  moodTag:"relax",
-  weatherTag:"mild",
-  vegType:"none",
-  effectTags:[],
-  internalNote:"蕃茄紅醬＋肉與蔬菜，酸甜開胃、飽足感高但不會太膩。",
-
-  mealSize:      "full",
-  mealFlavorTag: "fresh",
-  mealBase:      "pasta"
-},
-{
-  id:"pasta_white_sauce",
-  name:"培根白醬義大利麵",
-  category:"義大利麵",
-  mainType:"meal",
-  caffeine:"none",
-  milk:true,
-  ginger:false,
-  sugarLevel:"unsweetened",
-  canMakeUnsweetened:true,
-  tempOptions:"hot",
-  bodySupport:["nourish"],
-  moodTag:"relax",
-  weatherTag:"cold",
-  vegType:"none",
-  effectTags:[],
-  internalNote:"奶油白醬＋豬培根與蔬菜，奶味濃郁、偏罪惡感，適合想吃重一點的時候。",
-
-  mealSize:      "full",
-  mealFlavorTag: "rich",
-  mealBase:      "pasta"
-},
-
-
-      { id:"basque_original", name:"原味巴斯克乳酪蛋糕", category:"甜點", mainType:"dessert", caffeine:"none", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"mild", vegType:"ovo_lacto", effectTags:[], internalNote:"乳酪香濃、甜度中等，是第一次來最安全的巴斯克選擇。" },
-      { id:"basque_matcha", name:"抹茶巴斯克乳酪蛋糕", category:"甜點", mainType:"dessert", caffeine:"low", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"mild", vegType:"ovo_lacto", effectTags:[], internalNote:"抹茶微苦回甘、甜度略低，適合喜歡大人味抹茶的人。" },
-      { id:"basque_tieguanyin", name:"鐵觀音巴斯克乳酪蛋糕", category:"甜點", mainType:"dessert", caffeine:"low", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"mild", vegType:"ovo_lacto", effectTags:[], internalNote:"鐵觀音茶香明顯、甜度不高，適合不愛太膩、又想要茶韻的人。" },
-      { id:"basque_chocolate", name:"巧克力巴斯克乳酪蛋糕", category:"甜點", mainType:"dessert", caffeine:"low", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"relax", weatherTag:"cold", vegType:"ovo_lacto", effectTags:[], internalNote:"可可濃郁、苦甜平衡，適合需要重口味甜食療癒的時候。" },
-      { id:"dessert_seasonal", name:"期間限定蛋糕", category:"甜點", mainType:"dessert", caffeine:"none", milk:true, ginger:false, sugarLevel:"normal", canMakeUnsweetened:false, tempOptions:"both", bodySupport:["nourish"], moodTag:"surprise", weatherTag:"mild", vegType:"ovo_lacto", effectTags:[], internalNote:"依季節與靈感更換口味，適合願意交出選擇權、想嚐鮮的人。" }
-    ];
+  {
+    id: "basque_original",
+    name: "原味巴斯克乳酪蛋糕",
+    category: "甜點",
+    mainType: "dessert",
+    caffeine: "none",
+    milk: true,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "both",
+    bodySupport: ["nourish"],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "ovo_lacto",
+    effectTags: [],
+    internalNote: "乳酪香濃、甜度中等，是第一次來最安全的巴斯克選擇。"
+  },
+  {
+    id: "basque_matcha",
+    name: "抹茶巴斯克乳酪蛋糕",
+    category: "甜點",
+    mainType: "dessert",
+    caffeine: "low",
+    milk: true,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "both",
+    bodySupport: ["nourish"],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "ovo_lacto",
+    effectTags: [],
+    internalNote: "抹茶微苦回甘、甜度略低，適合喜歡大人味抹茶的人。"
+  },
+  {
+    id: "basque_tieguanyin",
+    name: "鐵觀音巴斯克乳酪蛋糕",
+    category: "甜點",
+    mainType: "dessert",
+    caffeine: "low",
+    milk: true,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "both",
+    bodySupport: ["nourish"],
+    moodTag: "relax",
+    weatherTag: "mild",
+    vegType: "ovo_lacto",
+    effectTags: [],
+    internalNote: "鐵觀音茶香明顯、甜度不高，適合不愛太膩、又想要茶韻的人。"
+  },
+  {
+    id: "basque_chocolate",
+    name: "巧克力巴斯克乳酪蛋糕",
+    category: "甜點",
+    mainType: "dessert",
+    caffeine: "low",
+    milk: true,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "both",
+    bodySupport: ["nourish"],
+    moodTag: "relax",
+    weatherTag: "cold",
+    vegType: "ovo_lacto",
+    effectTags: [],
+    internalNote: "可可濃郁、苦甜平衡，適合需要重口味甜食療癒的時候。"
+  },
+  {
+    id: "dessert_seasonal",
+    name: "期間限定蛋糕",
+    category: "甜點",
+    mainType: "dessert",
+    caffeine: "none",
+    milk: true,
+    ginger: false,
+    sugarLevel: "normal",
+    canMakeUnsweetened: false,
+    tempOptions: "both",
+    bodySupport: ["nourish"],
+    moodTag: "surprise",
+    weatherTag: "mild",
+    vegType: "ovo_lacto",
+    effectTags: [],
+    internalNote: "依季節與靈感更換口味，適合願意交出選擇權、想嚐鮮的人。"
+  }
+];
 
 /* 硬過濾：直接不能推薦的項目先排掉 */
 function passesHardFilter(item, p) {
   const isIceSugarOrSoda =
-    item.category === '冰糖花釀飲' || item.category === '氣泡飲';
+    item.category === "冰糖花釀飲" || item.category === "氣泡飲";
 
   // 蛋奶素：主餐只留蛋奶素
   if (p.vegetarian) {
-    if (item.mainType === 'meal' && item.vegType !== 'ovo_lacto') return false;
+    if (item.mainType === "meal" && item.vegType !== "ovo_lacto") return false;
   }
 
-  // 不吃牛
-  if (p.noBeef && item.id && item.id.includes('beef')) return false;
+  // 不吃牛（以 id 含 beef 判斷）
+  if (p.noBeef && item.id && item.id.includes("beef")) return false;
 
-  // 不喝鮮奶類飲品：只擋 drink+milk
-  if (p.avoidMilk && item.mainType === 'drink' && item.milk) return false;
+  // 不喝鮮奶類飲品：只擋 drink + milk
+  if (p.avoidMilk && item.mainType === "drink" && item.milk) return false;
 
   // 不喝咖啡因
-  if (p.noCaffeine && item.caffeine !== 'none') return false;
+  if (p.noCaffeine && item.caffeine !== "none") return false;
 
   // 不喝冰飲
-  if (p.noIce && item.mainType === 'drink') {
-    if (item.tempOptions === 'cold' || isIceSugarOrSoda) return false;
+  if (p.noIce && item.mainType === "drink") {
+    if (item.tempOptions === "cold" || isIceSugarOrSoda) return false;
   }
 
-  // 月經：避免冰飲＋氣泡＋薑
-  if (p.period && item.mainType === 'drink') {
-    if (item.tempOptions === 'cold' || isIceSugarOrSoda) return false;
+  // 月經：避免冰飲＋氣泡/冰糖花釀＋薑
+  if (p.period && item.mainType === "drink") {
+    if (item.tempOptions === "cold" || isIceSugarOrSoda) return false;
     if (item.ginger) return false;
   }
 
   // 懷孕：避免咖啡因＋薑＋特定花草
-  if (p.pregnant && item.mainType === 'drink') {
-    if (item.caffeine !== 'none') return false;
+  if (p.pregnant && item.mainType === "drink") {
+    if (item.caffeine !== "none") return false;
     if (item.ginger) return false;
-    const riskyHerbIds = ['peppermint', 'rose_herbal', 'strawberry_herbal', 'osmanthus'];
-    if (riskyHerbIds.some(k => item.id && item.id.includes(k))) return false;
+
+    const riskyHerbIds = ["peppermint", "rose_herbal", "strawberry_herbal", "osmanthus"];
+    if (riskyHerbIds.some((k) => item.id && item.id.includes(k))) return false;
   }
 
   return true;
@@ -3010,82 +3746,72 @@ ${contextSummary}
 
 // 問完全部，產生推薦結果（一次性顯示最終文案）
 async function finishQuestionFlow() {
+  const myRun = ++resultRunId;                 // ✅ 這一輪的流水號
+  const stillValid = () => myRun === resultRunId;
+
   dialogChoicesEl.innerHTML = "";
   dialogLabelEl.textContent = "AI貓店長";
 
-  // 一樣先走「翻菜單」過場
   const waitingText =
     "好，資料收集完成，本喵來翻一下今天的菜單…\n\n" +
     "你先在吧台前稍微等等，聽到喵一聲的時候，就代表我想好了。🐾";
 
-  // 等這段打完之後，再進入計算＋Gemini 流程
   typeText(waitingText, 32, async () => {
+    if (!stillValid()) return;                 // ✅ 你按了重來/關閉，就直接停止
+
     const combo = pickRecommendations();
 
-    // 跟昨天一樣：真的湊不出組合時的處理
     if (!combo.meal && !combo.drinks.length && !combo.dessert) {
+      if (!stillValid()) return;
       dialogChoicesEl.innerHTML = "";
       const text =
         "嗯… 依照你剛剛給的條件，本喵暫時湊不出一個很滿意的組合。\n\n" +
         "要不要稍微放寬一點條件，或換個心情，我們再重來一次？";
       typeText(text, 32, () => {
+        if (!stillValid()) return;
         dialogChoicesEl.innerHTML = "";
         addDialogButton("好，放寬一點再試試", () => startQuestionFlow());
         addDialogButton("先這樣，我自己翻實體菜單就好", () => {
           dialogChoicesEl.innerHTML = "";
-          typeText(
-            "沒問題，本喵就在吧台這邊，如果你翻到一半還是卡住，再叫我一聲就好。",
-            32
-          );
+          typeText("沒問題，本喵就在吧台這邊，如果你翻到一半還是卡住，再叫我一聲就好。", 32);
         });
       });
       return;
     }
 
-    // 先算本地 fallback，給 Gemini 當備用
     const fallbackStory = generateComboFallback(combo);
 
-    // 像昨天那樣先有一行品名總結
     const { meal, drinks, dessert } = combo;
     const namesLineParts = [];
     if (meal) namesLineParts.push(`主餐：${meal.name}`);
-    if (drinks.length)
-      namesLineParts.push(`飲品：${drinks.map(d => d.name).join("、")}`);
+    if (drinks.length) namesLineParts.push(`飲品：${drinks.map(d => d.name).join("、")}`);
     if (dessert) namesLineParts.push(`甜點：${dessert.name}`);
-    const namesLine = namesLineParts.join("｜");
+    const intro = namesLineParts.join("｜");
 
-    // 簡化：只保留品名那一行當標題
-    const intro = namesLine;
-
-    // 關掉對話框
     dialogChoicesEl.innerHTML = "";
     dialogBoxEl.classList.remove("visible");
 
-    // 先把組合卡片畫出來
     renderComboCards(combo);
 
-    // 先顯示「intro + fallback」，然後打開面板＋loading 遮罩
-resultStoryEl.textContent = intro + "\n\n" + fallbackStory;
-resultPanelEl.classList.remove("hidden");
-resultPanelEl.classList.add("show");
-document.querySelector(".pixel-screen").classList.add("with-result");
+    if (!stillValid()) return;                 // ✅ 開面板前再擋一次
+    resultStoryEl.textContent = intro + "\n\n" + fallbackStory;
+    resultPanelEl.classList.add("show");
+    pixelScreenEl.classList.add("with-result"); // ✅ 不要用 querySelector，改用已經抓好的 pixelScreenEl [file:42]
 
-// ✅ 1) 先啟動 thinking（會顯示 loading overlay + 播 think.mp3 loop）
-setThinking(true);
+    setThinking(true);
 
-// ✅ 2) level-up 改成延後一點播，避免 iOS/Safari 同一時間點搶音訊導致 think 播不出來
-setTimeout(() => playSfx(sfxLevelUp), 120);
+    setTimeout(() => {                          // ✅ 延遲音效也要擋
+      if (!stillValid()) return;
+      playSfx(sfxLevelUp);
+    }, 120);
 
-const finalStory = await getAIComboReason(combo, fallbackStory);
+    const finalStory = await getAIComboReason(combo, fallbackStory);
 
-// ✅ 3) Gemini 回來就關 thinking（會隱藏 overlay + stop think.mp3）
-setThinking(false);
-
-resultStoryEl.textContent = intro + "\n\n" + finalStory;
-
+    if (!stillValid()) return;                  // ✅ await 回來後再擋一次
+    setThinking(false);
+    resultStoryEl.textContent = intro + "\n\n" + finalStory;
   });
 }
-
 
 
 /* 問卷流程用狀態重置 */
